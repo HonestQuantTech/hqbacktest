@@ -26,7 +26,7 @@
 | Context | 引擎向策略暴露的只读查询接口与受控下单入口。 |
 | DataView | 引擎向策略暴露的数据视图，带 `visible_through` 截止日；越过截止日必须抛错。 |
 | AdjustmentPolicy | 复权与公司行为调整策略；v0.1 仅支持 `none`。`factor_total_return` 必须等待独立的公司行为会计设计和验证后才可加入。 |
-| 数据源（source） | 一次回测固定的 `hqdata` 数据源标识（如 `tushare`、`ricequant`）；同一次回测不混用。 |
+| 数据源（source） | 一次回测固定的 `hqdata` 数据来源位置：可以是名称（如 `tushare`、`ricequant`，由 `hqdata` 解析为 `~/.hqdata/{name}`），也可以是绝对路径（如 `/home/<user>/.hqdata/tushare`）。同一次回测不混用；具体路径解析由 `hqdata` 负责，hqbacktest 只透传字符串。 |
 
 ## 3. 默认契约表
 
@@ -36,7 +36,7 @@
 | --- | --- |
 | 市场与频率 | A 股普通股票的**日线**回测；先支持沪深普通股票。北交所、ST、上市首日无涨跌幅限制等特殊证券延后。 |
 | 账户 | 单账户、人民币现金、现货多头；不支持融资融券、做空、期货、期权、组合级保证金。 |
-| 数据边界 | 每次运行只使用一个 `hqdata` 数据源；引擎只调用 `hqdata.api` 公开 API，不接触底层 SDK。日线首选来源为 Tushare 或 RiceQuant。 |
+| 数据边界 | 每次运行只使用一个 `hqdata` 数据源；引擎只调用 `hqdata.api` 公开 API，不接触底层 SDK，也不直接读取本地文件。数据由 `hqdata` 维护，默认根目录 `~/.hqdata`；`source` 字段可以是名称（如 `tushare`/`ricequant`，对应 `~/.hqdata/{name}`）或绝对路径。日线数据来源由用户在配置中指定（首选 Tushare 或 RiceQuant 的本地文件）。 |
 | 时间语义 | `before_trading_start(D)` 只能看到 D-1 及以前的数据，可提交在 D 开盘撮合的订单；`on_bar(D)` 在 D 收盘后看到 D 日线，订单最早在 D+1 开盘撮合。 |
 | 初始订单 | 首版只支持市价委托；默认按符合交易条件的开盘价全额成交。限价单、分笔、成交量参与率、盘中撮合均属后续能力。 |
 | 数据可见性 | 策略读取数据必须经过带 `visible_through` 截止日的 `DataView`；任何未来数据访问必须抛错。 |
@@ -135,6 +135,7 @@
 - `engine` 编排 `MarketDataPortal`、`DataView`、`broker`、`portfolio` 与策略生命周期；它通过 `MarketDataPortal` 读取交易日历，并向 `broker` 提供窄化的撮合行情接口。
 - `broker/portfolio` 只能由 `engine` 驱动；不得反向调用策略或回写 `Context`。`broker` 不负责日历迭代或策略调度。
 - `data portal` 只暴露协议化的 `MarketDataPortal`；`HqDataPortal` 是其唯一默认实现，**只能**调用 `hqdata.api` 的公开函数，禁止 `from hqdata.sources import ...`。
+- `data portal` 不直接打开本地文件、不维护路径白名单；文件 I/O 与路径解析全部由 `hqdata` 承担，`HqDataPortal` 只把 `source` 字符串透传给 `hqdata`。
 - `hqdata.api` 是叶子节点，不感知上层存在。
 
 ## 6. 不可变规则
@@ -182,3 +183,4 @@
 | --- | --- | --- | --- |
 | 2026-08-17 | v0.1 初稿 | 依据 `TODO.md` 任务 1 首次固化契约 | hqbacktest 维护者 |
 | 2026-08-17 | v0.1 | 修正盘前订单的同日开盘撮合语义；明确收盘估值、结束订单、股票池资格与异常分类；因缺少精确公司行为会计，v0.1 仅支持 `AdjustmentPolicy=none` | hqbacktest 维护者 |
+| 2026-08-17 | v0.1 | 修正数据源模型：`source` 为名称（解析到 `~/.hqdata/{name}`）或绝对路径，由 `hqdata` 解析；hqbacktest 不直接读文件、不接触 token | hqbacktest 维护者 |

@@ -7,7 +7,12 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**规划与启动阶段**：仓库现阶段提供设计说明和串行实施路线图，尚未包含可安装的 Python 包、稳定的公开 API 或可执行的命令行工具。
+`hqbacktest` 当前处于**v0.1 工程骨架阶段**：
+
+- **已实现（任务 1、2 完成）：** 产品契约（`docs/design/mvp-contract.md`）、可安装的 Python 包骨架、`__version__` 导出、`pytest` smoke 测试、`.env.example` 与格式化（black）配置。
+- **计划中（任务 3–13）：** 领域模型、交易日历与历史股票池、数据可见性、策略生命周期、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
+
+本文的"目标用法""目标命令行"和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -67,17 +72,16 @@
 
 ### 当前阶段
 
-当前仓库尚无 `pyproject.toml` 和可导入的包。现在应先阅读并按 [TODO.md](TODO.md) 的任务 1、任务 2 建立工程骨架，而不是尝试安装或运行 `hqbacktest`。
+`hqbacktest` v0.1 已具备可安装的 Python 包骨架（任务 2 完成）。公开 API、领域模型、撮合引擎与命令行工具属于后续任务（任务 3–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
 cd hqbacktest
-cat TODO.md
 ```
 
-### 目标开发环境（任务 2 完成后）
+### 开发环境
 
-以下命令是完成软件包骨架后的目标用法，届时会以实际的 `pyproject.toml` 为准：
+本仓库使用 Python `>=3.10`，与 `hqdata` 的 Python 下限保持一致。`pyproject.toml` 同时声明 `3.10`、`3.11`、`3.12` 作为目标版本。
 
 ```bash
 # 创建虚拟环境
@@ -91,15 +95,31 @@ pip install -e "../hqdata[tushare]"
 pip install -e ".[dev]"
 ```
 
-## 配置数据源
+### 包布局
 
-数据源凭证由 `hqdata` 负责加载，`hqbacktest` 不保存也不输出凭证。以 Tushare 为例，可在运行环境中设置：
-
-```bash
-export TUSHARE_TOKEN=your_token
+```text
+hqbacktest/
+├── pyproject.toml          # 构建、依赖、pytest 与 black 配置
+├── src/hqbacktest/         # 引擎源码（src 布局）
+│   └── __init__.py         # 当前仅导出 __version__
+├── tests/                  # 单元测试，必须不依赖网络或本地行情文件
+├── examples/               # 端到端示例（任务 11 才填充）
+└── docs/design/            # 设计文档（如 mvp-contract.md）
 ```
 
-也可使用 `hqdata` 约定的 `.env` 配置方式。使用 RiceQuant 时，应按其 SDK 和 `hqdata` 的配置要求准备权限与凭证。任何真实 token、账户号和本地私密配置均不应提交到仓库或写入回测结果。
+## 配置数据源
+
+`hqbacktest` **不直接读取本地行情文件，也不接触任何数据源 token**。所有数据由 `hqdata` 维护，引擎只调用 `hqdata.api` 的公开函数。
+
+回测配置中的 `source` 字段是一个**位置字符串**，由 `hqdata` 负责解析：
+
+| 写法 | 含义 |
+| --- | --- |
+| `"tushare"` | 使用默认根目录下的 Tushare 数据目录，即 `~/.hqdata/tushare` |
+| `"ricequant"` | 使用默认根目录下的 RiceQuant 数据目录，即 `~/.hqdata/ricequant` |
+| `"/home/<user>/.hqdata/tushare"` | 使用显式绝对路径，跳过名称解析 |
+
+数据写入 `~/.hqdata/{name}` 的工作由 `hqdata` 及其上层流程负责；hqbacktest 既不下载数据，也不保存凭证。任何真实 token、账户号或私密配置都**不应**提交到仓库，也不应出现在回测结果目录中。
 
 ## 目标 Python 用法
 
@@ -158,7 +178,7 @@ result.save("results/moving-average")
 | --- | --- | --- |
 | `start_date` / `end_date` | `"20200102"` | 回测的包含式日期区间，格式为 `YYYYMMDD` |
 | `initial_cash` | `"1000000"` | 初始人民币现金；账本层将转换为精确金额类型 |
-| `source` | `"tushare"` | 本次运行唯一的数据源；不能在一次回测中混用数据源 |
+| `source` | `"tushare"` 或 `/home/<user>/.hqdata/tushare` | 本次运行唯一的数据来源位置：名称（解析为 `~/.hqdata/{name}`）或绝对路径；不能在一次回测中混用 |
 | `adjustment_policy` | `"none"` | v0.1 唯一合法值；精确公司行为会计完成并验证前，不支持因子总回报调整 |
 | `universe` | `["600000.SH"]` | 可由策略初始化或配置文件声明的目标股票池 |
 | `cost_model` | 配置节 | 佣金、最低佣金、印花税和可选过户费；费率必须显式配置 |
@@ -198,13 +218,13 @@ results/moving-average/
 
 ## 测试与开发
 
-任务 2 完成后，项目的目标验证入口为：
+项目的验证入口为：
 
 ```bash
 pytest tests/ -v
 ```
 
-单元测试必须使用内存数据或 mock，不依赖网络和真实凭证。确需验证 Tushare 或 RiceQuant 适配的集成测试必须在凭证不存在时自动跳过。每一项公开 API、订单规则、时间语义和绩效公式都应有可手算的回归测试。
+单元测试必须使用内存数据或 mock，不依赖网络和本地行情文件。确需在真实数据上验证 Tushare 或 RiceQuant 适配的集成测试必须在 `~/.hqdata/{name}` 目录不存在或不可读时自动跳过。每一项公开 API、订单规则、时间语义和绩效公式都应有可手算的回归测试。
 
 ## 实施顺序
 

@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hqbacktest"
+version = "0.1.0"
+description = "A股量化策略回测与交易模拟引擎"
+readme = "README.md"
+authors = [
+  { name="HowieMen", email="howiemen@honestquant.com" },
+]
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = [
+  "hqbacktest",
+  "quant",
+  "quantitative",
+  "backtest",
+  "investment",
+  "algotrading",
+  "A股",
+  "trading-simulation",
+]
+
+# v0.1 task 2 skeleton: no runtime deps yet.
+# pandas / click / pydantic will be added when subsequent tasks need them.
+dependencies = []
+
+[project.urls]
+Homepage = "https://honestquant.com/hqbacktest"
+Source = "https://github.com/HonestQuantTech/hqbacktest"
+
+[project.optional-dependencies]
+# hqbacktest must NOT import Tushare / RiceQuant / AkShare SDKs directly.
+# These extras are reserved placeholders so users have a consistent way to
+# declare source-related optional deps; hqdata remains the only integration layer.
+tushare = []
+ricequant = []
+
+dev = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "black>=25.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hqbacktest*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
