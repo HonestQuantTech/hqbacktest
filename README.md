@@ -9,10 +9,8 @@
 
 `hqbacktest` 当前处于**v0.1 工程骨架阶段**：
 
-- **已实现（任务 1、2 完成）：** 产品契约（`docs/design/mvp-contract.md`）、可安装的 Python 包骨架、`__version__` 导出、`pytest` smoke 测试、`.env.example` 与格式化（black）配置。
-- **计划中（任务 3–13）：** 领域模型、交易日历与历史股票池、数据可见性、策略生命周期、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
-
-本文的"目标用法""目标命令行"和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
+- **已实现（任务 1–3 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照、日线与公司行为占位符）、订单状态机、`Decimal` 精度与 JSON 序列化，以及无网络单元测试。
+- **计划中（任务 4–13）：** 交易日历与历史股票池、数据可见性、策略生命周期、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -101,7 +99,8 @@ pip install -e ".[dev]"
 hqbacktest/
 ├── pyproject.toml          # 构建、依赖、pytest 与 black 配置
 ├── src/hqbacktest/         # 引擎源码（src 布局）
-│   └── __init__.py         # 当前仅导出 __version__
+│   ├── __init__.py         # 版本及稳定的领域模型导出
+│   └── domain/             # 任务 3 的模型、状态机、精度与序列化
 ├── tests/                  # 单元测试，必须不依赖网络或本地行情文件
 ├── examples/               # 端到端示例（任务 11 才填充）
 └── docs/design/            # 设计文档（如 mvp-contract.md）

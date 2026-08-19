@@ -1,4 +1,4 @@
-"""Smoke tests for the hqbacktest package skeleton (task 2).
+"""Smoke tests for the hqbacktest package (tasks 2 + 3).
 
 These tests must run without network access, data source credentials, or
 any non-standard-library imports beyond pytest.
@@ -20,8 +20,25 @@ def test_version_is_non_empty_string():
     assert hqbacktest.__version__
 
 
-def test_public_api_limited_to_version():
-    """In the v0.1 task 2 skeleton, only `__version__` is exported."""
+def test_public_api_includes_domain_models():
+    """After task 3, the package re-exports the domain models."""
     import hqbacktest
 
-    assert set(hqbacktest.__all__) == {"__version__"}
+    expected = {
+        "__version__",
+        "AccountSnapshot",
+        "Bar",
+        "CorporateActionAdjustment",
+        "EventType",
+        "Fill",
+        "Order",
+        "OrderStatus",
+        "OrderType",
+        "Portfolio",
+        "Position",
+        "PositionSnapshot",
+        "PriceMode",
+        "RejectReason",
+        "Side",
+    }
+    assert set(hqbacktest.__all__) == expected
