@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Dict, Iterable, Optional
 
 from .enums import EventType, Side
+from .errors import InsufficientCashError, InsufficientSharesError
 from .fill import Fill
 from .money import quantize_cash
 from .position import Position
@@ -119,7 +120,7 @@ class Portfolio:
         if fill.side is Side.BUY:
             cost = fill.amount + fill.commission + fill.other_fee
             if cost > self.cash:
-                raise ValueError(
+                raise InsufficientCashError(
                     f"insufficient cash for fill: need {cost}, have {self.cash}"
                 )
             position = self.get_position(fill.symbol)
@@ -129,7 +130,9 @@ class Portfolio:
         else:
             position = self.positions.get(fill.symbol)
             if position is None:
-                raise ValueError(f"no position available to sell for {fill.symbol}")
+                raise InsufficientSharesError(
+                    f"no position available to sell for {fill.symbol}"
+                )
             proceeds = -fill.amount - fill.commission - fill.stamp_tax - fill.other_fee
             prior_realized = position.realized_pnl
             position.update_sell(fill.quantity, fill.price)

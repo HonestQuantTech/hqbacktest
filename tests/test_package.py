@@ -55,6 +55,7 @@ def test_public_api_includes_domain_models():
         "PriceMode",
         "RejectReason",
         "Side",
+        "SimulatedBroker",
         "Strategy",
         "TradingDayIterator",
         "resolve_source_location",

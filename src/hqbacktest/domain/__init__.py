@@ -8,6 +8,7 @@ Re-exports the public API of the domain package so callers can write:
 from .adjustment import CorporateActionAdjustment
 from .bar import Bar
 from .enums import EventType, OrderStatus, OrderType, PriceMode, RejectReason, Side
+from .errors import InsufficientCashError, InsufficientSharesError
 from .fill import Fill
 from .money import (
     CASH_QUANT,
@@ -42,6 +43,8 @@ __all__ = [
     "CorporateActionAdjustment",
     "EventType",
     "Fill",
+    "InsufficientCashError",
+    "InsufficientSharesError",
     "IllegalStateTransition",
     "LOT_SIZE",
     "MoneyError",

@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict
 
+from .errors import InsufficientSharesError
 from .money import PRICE_QUANT, quantize_cash, quantize_price
 
 
@@ -92,7 +93,7 @@ class Position:
         if not isinstance(price, Decimal) or price <= 0:
             raise ValueError(f"sell price must be positive Decimal, got {price!r}")
         if quantity > self.sellable_quantity:
-            raise ValueError(
+            raise InsufficientSharesError(
                 f"insufficient sellable quantity: have {self.sellable_quantity}, "
                 f"want {quantity}"
             )

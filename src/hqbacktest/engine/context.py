@@ -24,6 +24,7 @@ Isolation rules enforced here (contract §4 and task 6 goals):
       locked once `initialize` returns (contract §4 配套约束).
 """
 
+from dataclasses import replace
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -183,12 +184,15 @@ class Context:
         )
 
     def positions(self) -> Dict[str, Position]:
+        """Per-symbol holdings. Copies: mutating them never touches the ledger."""
         self._require_active("positions")
-        return {sym: pos for sym, pos in self._portfolio.positions.items()}
+        return {sym: replace(pos) for sym, pos in self._portfolio.positions.items()}
 
     def position(self, symbol: str) -> Optional[Position]:
+        """One symbol's holding. A copy: mutating it never touches the ledger."""
         self._require_active("position")
-        return self._portfolio.positions.get(symbol)
+        pos = self._portfolio.positions.get(symbol)
+        return replace(pos) if pos is not None else None
 
     def universe(self) -> List[str]:
         self._require_active("universe")

@@ -5,6 +5,7 @@ Re-exports the public API of the engine package:
     from hqbacktest.engine import BacktestConfig, BacktestEngine, Strategy
 """
 
+from .broker import SimulatedBroker
 from .config import BacktestConfig
 from .context import Context
 from .engine import BacktestEngine
@@ -59,6 +60,7 @@ __all__ = [
     "NullStrategy",
     "PhaseSchedule",
     "RunFailed",
+    "SimulatedBroker",
     "Strategy",
     "StrategyLifecycleError",
     "TradingDayIterator",

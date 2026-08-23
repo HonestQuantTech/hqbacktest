@@ -13,15 +13,20 @@ immutable once the run starts).
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, List, Optional
 
 from ..data.data_view import DataView
 from ..data.errors import MissingDataError
 from ..data.portal import MarketDataPortal
 from ..domain.enums import EventType
+from ..domain.order import Order
 from .context import Context
 from .events import EngineEvent, EventLog
 from .strategy import Strategy
+
+
+# Callback the engine plugs in to consume pending orders at OPEN_MATCH.
+OpenMatchCallback = Callable[[str, List[Order]], None]
 
 
 # Each phase's `visible_through` rule (contract §4). A value of `None` means
@@ -95,8 +100,15 @@ def run_day(
     strategy: Strategy,
     context: Context,
     log: EventLog,
+    on_open_match: Optional[OpenMatchCallback] = None,
 ) -> None:
-    """Fire the five phases for one trading day, in order."""
+    """Fire the five phases for one trading day, in order.
+
+    `on_open_match` (task 7) is invoked at the OPEN_MATCH phase with the
+    pending orders accumulated by `Context.order_*`. The callback is
+    expected to apply fills to the portfolio and to mark rejected orders.
+    When `on_open_match` is `None`, OPEN_MATCH is a no-op (pre-task 7).
+    """
     context._set_date(today)
     for entry in PHASE_SCHEDULE:
         context._set_phase(entry.phase)
@@ -121,8 +133,12 @@ def run_day(
         if entry.phase is EventType.BEFORE_TRADING_START:
             strategy.before_trading_start(context, view)
         elif entry.phase is EventType.OPEN_MATCH:
-            # Internal: no strategy callback in v0.1; the broker (task 7)
-            # will plug in here. For now we just log the phase.
+            if on_open_match is not None:
+                # Only consume when a matcher is wired in; otherwise pending
+                # orders would silently vanish without any event.
+                pending = context._consume_pending_orders()
+                if pending:
+                    on_open_match(today, pending)
             continue
         elif entry.phase is EventType.BAR_CLOSE:
             strategy.on_bar(context, view)

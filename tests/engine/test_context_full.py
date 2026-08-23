@@ -411,6 +411,18 @@ def test_context_does_not_expose_raw_portal_or_portfolio():
     assert "universe" in public_attrs
 
 
+def test_context_positions_are_copies_not_live_ledger_objects():
+    """Isolation: mutating a returned Position must not rewrite the ledger."""
+    ctx, portfolio, _ = _ctx()
+    portfolio.get_position("600000.SH").update_buy(100, Decimal("10"))
+    leaked = ctx.position("600000.SH")
+    leaked.update_buy(10000, Decimal("1"))  # strategy-side forgery attempt
+    assert portfolio.positions["600000.SH"].quantity == 100
+    snapshot = ctx.positions()["600000.SH"]
+    snapshot.quantity = 999999
+    assert portfolio.positions["600000.SH"].quantity == 100
+
+
 # --------------------------------------------------------------------- #
 # Order event recording
 # --------------------------------------------------------------------- #

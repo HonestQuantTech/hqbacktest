@@ -35,6 +35,7 @@ from hqbacktest.engine import (
     EngineEvent,
     EventLog,
     NullStrategy,
+    SimulatedBroker,
     Strategy,
     TradingDayIterator,
 )
@@ -72,6 +73,7 @@ __all__ = [
     "PriceMode",
     "RejectReason",
     "Side",
+    "SimulatedBroker",
     "Strategy",
     "TradingDayIterator",
     "resolve_source_location",

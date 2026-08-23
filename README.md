@@ -7,10 +7,10 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 策略接口完成阶段**：
+`hqbacktest` 当前处于**v0.1 撮合完成阶段**：
 
-- **已实现（任务 1–6 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、最小 `BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；以及 `BaseStrategy` 生命周期、`Context` 只读 API（`cash` / `positions` / `universe` / `pending_orders` / `history` / `current_price` / `total_equity`）、受控下单意图（`order` / `order_value` / `order_target` / `order_target_value` / `order_target_percent` / `cancel_order`），以及`未初始化/重复初始化/回调外下单/越阶段读取行情/运行后访问`等生命周期错误。订单只积累为意图，撮合、费用与账本估值尚未接入。
-- **计划中（任务 7–13）：** 虚拟经纪商与开盘撮合、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
+- **已实现（任务 1–7 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API（`cash` / `positions` / `universe` / `pending_orders` / `history` / `current_price` / `total_equity`）、下单意图（`order` / `order_value` / `order_target` / `order_target_value` / `order_target_percent` / `cancel_order`）；以及 `SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）、账本冻结与拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES` / `MISSING_DATA` / `INVALID_PRICE`）和 T+1 日终结算。手续费、TradingRuleSet 与 AdjustmentPolicy 仍属后续任务。
+- **计划中（任务 8–13）：** A 股基础规则与可配置成本模型、公司行为扩展设计门槛、结果与指标、CLI、CI 与发布。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -38,7 +38,7 @@
 | 日频事件时钟 | `BacktestEngine`、`EventLog` | 五阶段固定顺序；盘前 D-1、收盘 D 的可见性切换；事件日志记录日期、阶段与错误原因；策略异常带日期和阶段 | 已实现 |
 | 策略生命周期 | `BaseStrategy`、`Context` | `initialize`/`before_trading_start`/`on_bar`/`after_trading_end` 四个回调；只读 `Context` 暴露 `cash` / `positions` / `universe` / `pending_orders` / `history` / `current_price` / `total_equity`；下单意图（`order`/`order_value`/`order_target`/`order_target_value`/`order_target_percent`/`cancel_order`）；市价单且与数据可见性 / 账本严格隔离 | 已实现 |
 | 下单与撤单 | `Context.order_*()` | 首版只支持市价委托，策略只能提交意图，不能直接改账户；仅盘前与收盘回调可下单，订单创建/撤销写入事件日志 | 已实现 |
-| 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交 | 计划中 |
+| 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交；回测结束时未成交订单以 `BACKTEST_ENDED` 撤销 | 已实现 |
 | A 股基础规则 | `TradingRuleSet` | 整手、T+1、停牌/无价拒绝、现货多头和可配置成本 | 计划中 |
 | 公司行为扩展 | `CorporateActionProvider` | 先定义权威公司行为数据与会计规则；v0.1 不根据复权因子改写账本 | 计划中 |
 | 结果与分析 | `BacktestResult` | 净值、订单、成交、持仓、成本及基础绩效指标 | 计划中 |
@@ -71,7 +71,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟和受控策略接口（任务 2–6）：空策略已可基于完整 `Context` API 在交易日历上运行并提交订单意图。撮合引擎、费用与账本估值仍属于后续任务（任务 7–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
+`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口与开盘市价撮合（任务 2–7）：一个买入并持有策略可在假数据上产出确定的现金、持仓与成交记录。A 股基础规则、费用、公司行为扩展与命令行的后续任务（任务 8–12）按 [`TODO.md`](TODO.md) 顺序陆续落地。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git

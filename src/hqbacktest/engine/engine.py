@@ -1,28 +1,36 @@
 """BacktestEngine: event clock plus controlled strategy context.
 
-Responsibilities after task 6:
+Responsibilities after task 7:
     - Build a `MarketDataPortal` from `BacktestConfig` (default: CSV portal).
     - Iterate the trading days returned by the portal (no natural-day loop).
     - Dispatch the five phases per day in contract §4 order.
     - Fire `strategy.initialize` exactly once and lock the universe after it.
+    - At the `OPEN_MATCH` phase, hand pending orders to `SimulatedBroker`,
+      apply the resulting fills to the portfolio, and mark rejections on
+      the orders (with reason + detail).
+    - After the last trading day, cancel still-pending orders with reason
+      `BACKTEST_ENDED` (contract §4); the run is never extended to fill them.
     - Maintain a single `EventLog` covering the whole run.
     - Build a `BacktestResult` with the configuration snapshot, the log and
       the list of dates actually exercised.
 
-Out of scope (deferred to tasks 7/8):
-    - Order matching (intents only accumulate in `Context._pending_orders`).
-    - Cost model and fees.
-    - Settlement, snapshots, performance metrics.
+Out of scope (deferred to tasks 8/9/10):
+    - Cost model and fees (always zero in v0.1).
+    - Adjustment policy and corporate-action handling.
+    - Performance metrics, snapshots, persistence.
 """
 
 from dataclasses import asdict
-from typing import Optional
+from typing import List, Optional
 
 from ..data.data_view import DataView
 from ..data.hqdata_portal import HqDataCsvPortal, resolve_source_location
 from ..data.portal import MarketDataPortal
-from ..domain.enums import EventType
+from ..domain.enums import EventType, OrderStatus, RejectReason
+from ..domain.errors import InsufficientCashError, InsufficientSharesError
+from ..domain.order import Order
 from ..domain.portfolio import Portfolio
+from .broker import SimulatedBroker
 from .config import BacktestConfig
 from .context import Context
 from .errors import (
@@ -46,6 +54,7 @@ class BacktestEngine:
         config: BacktestConfig,
         strategy: Optional[Strategy] = None,
         portal: Optional[MarketDataPortal] = None,
+        broker: Optional[SimulatedBroker] = None,
     ) -> None:
         if not isinstance(config, BacktestConfig):
             raise ConfigurationError(
@@ -54,6 +63,7 @@ class BacktestEngine:
         self._config = config
         self._strategy = strategy if strategy is not None else NullStrategy()
         self._portal = portal
+        self._broker = broker if broker is not None else SimulatedBroker()
         self._event_log = EventLog()
         self._portfolio = Portfolio(initial_cash=config.initial_cash)
         self._initialized = False
@@ -71,6 +81,10 @@ class BacktestEngine:
         if self._portal is None:
             self._portal = self._build_default_portal()
         return self._portal
+
+    @property
+    def broker(self) -> SimulatedBroker:
+        return self._broker
 
     @property
     def event_log(self) -> EventLog:
@@ -120,6 +134,7 @@ class BacktestEngine:
             for today in iterator:
                 self._run_day_safely(today, portal, context)
                 result.trading_days.append(today)
+            self._cancel_leftover_orders(context, result.trading_days)
         finally:
             context._mark_run_finished()
         return result
@@ -175,7 +190,10 @@ class BacktestEngine:
                 strategy=self._strategy,
                 context=context,
                 log=self._event_log,
+                on_open_match=self._on_open_match,
             )
+            # End-of-day settlement: roll today's buys into sellable (T+1).
+            self._portfolio.settle_t1(today=today, previous_date=None)
         except RunFailed:
             raise
         except Exception as exc:
@@ -197,6 +215,101 @@ class BacktestEngine:
                 )
             )
             raise RunFailed(today, phase_name, exc) from exc
+
+    def _on_open_match(self, today: str, pending: List[Order]) -> None:
+        """Match pending orders at `OPEN_MATCH(today)` and apply fills.
+
+        The broker produces a `Fill` for each PENDING order (or rejects on
+        missing/invalid data). The engine then applies each fill to the
+        portfolio; typed ledger errors (`InsufficientCashError` /
+        `InsufficientSharesError`) become order rejections, while any other
+        ledger error is a programming bug and aborts the run via RunFailed.
+        """
+        results = self._broker.match(pending, self.portal, today)
+        for order, fill, broker_reason, broker_detail in results:
+            if fill is None:
+                # Broker rejected (data-side failure).
+                self._reject_order(
+                    order,
+                    today,
+                    broker_reason or RejectReason.OTHER,
+                    broker_detail or "",
+                )
+                continue
+            try:
+                self._portfolio.apply_fill(fill)
+            except InsufficientCashError as exc:
+                self._reject_order(
+                    order, today, RejectReason.INSUFFICIENT_CASH, str(exc)
+                )
+                continue
+            except InsufficientSharesError as exc:
+                self._reject_order(
+                    order, today, RejectReason.INSUFFICIENT_SHARES, str(exc)
+                )
+                continue
+            # Fill applied: record it on the order (keeps fill_ids,
+            # filled_quantity and avg_fill_price in sync) — record_fill
+            # transitions the order to FILLED when the quantity is complete.
+            order.record_fill(fill.fill_id, fill.quantity, fill.price, at=today)
+            self._event_log.record(
+                EngineEvent(
+                    date=today,
+                    phase=EventType.ORDER_FILLED,
+                    order_id=order.order_id,
+                    fill_id=fill.fill_id,
+                    detail=f"fill@{fill.price} qty={fill.quantity}",
+                )
+            )
+
+    def _reject_order(
+        self, order: Order, today: str, reason: RejectReason, detail: str
+    ) -> None:
+        """Mark an order REJECTED and append the audit-trail event."""
+        order.transition(
+            OrderStatus.REJECTED,
+            at=today,
+            reason=reason,
+            detail=detail,
+        )
+        self._event_log.record(
+            EngineEvent(
+                date=today,
+                phase=EventType.ORDER_REJECTED,
+                order_id=order.order_id,
+                error=reason.name,
+                detail=detail,
+            )
+        )
+
+    def _cancel_leftover_orders(
+        self, context: Context, trading_days: List[str]
+    ) -> None:
+        """Cancel orders still pending after the last BAR_CLOSE.
+
+        Contract §4: unfilled orders at the end of the window become
+        CANCELLED with reason `BACKTEST_ENDED`; the engine never extends the
+        run to fill them.
+        """
+        leftover = context._consume_pending_orders()
+        if not leftover:
+            return
+        at = trading_days[-1] if trading_days else self._config.end_date
+        for order in leftover:
+            order.transition(
+                OrderStatus.CANCELLED,
+                at=at,
+                reason=RejectReason.BACKTEST_ENDED,
+                detail="no OPEN_MATCH left in the backtest window",
+            )
+            self._event_log.record(
+                EngineEvent(
+                    date=at,
+                    phase=EventType.ORDER_CANCELLED,
+                    order_id=order.order_id,
+                    detail="BACKTEST_ENDED: no OPEN_MATCH left in the backtest window",
+                )
+            )
 
     # ------------------------------------------------------------------ #
     # Deterministic helpers (used by tests)
