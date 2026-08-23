@@ -8,6 +8,7 @@ Re-exports the public API of the engine package:
 from .broker import SimulatedBroker
 from .config import BacktestConfig
 from .context import Context
+from .cost_model import Cost, CostModel, DefaultCostModel
 from .engine import BacktestEngine
 from .errors import (
     CallbackAfterRunError,
@@ -32,6 +33,19 @@ from .intents import (
 )
 from .iterator import TradingDayIterator
 from .result import BacktestResult
+from .rule_set import (
+    DEFAULT_V01_RULES,
+    InsufficientCashRule,
+    InvalidPriceRule,
+    LotSizeRule,
+    LongOnlyRule,
+    NonTradingDayRule,
+    Rule,
+    RuleCheckContext,
+    RuleResult,
+    T1SellableRule,
+    TradingRuleSet,
+)
 from .scheduler import (
     PHASE_SCHEDULE,
     PhaseSchedule,
@@ -42,6 +56,7 @@ from .scheduler import (
 from .strategy import BaseStrategy, NullStrategy, Strategy
 
 __all__ = [
+    "DEFAULT_V01_RULES",
     "PHASE_SCHEDULE",
     "BacktestConfig",
     "BacktestEngine",
@@ -50,20 +65,36 @@ __all__ = [
     "CallbackAfterRunError",
     "ConfigurationError",
     "Context",
+    "Cost",
+    "CostModel",
     "DataPortalNotConfigured",
+    "DefaultCostModel",
+    (
+        "DefaultTradingRuleSet" if False else "DEFAULT_V01_RULES"
+    ),  # backward-compat alias below
     "DoubleInitializationError",
     "EngineError",
     "EngineEvent",
     "EventLog",
+    "InsufficientCashRule",
+    "InvalidPriceRule",
+    "LongOnlyRule",
+    "LotSizeRule",
     "NoPriceForOrderError",
+    "NonTradingDayRule",
     "NotInitializedError",
     "NullStrategy",
     "PhaseSchedule",
+    "Rule",
+    "RuleCheckContext",
+    "RuleResult",
     "RunFailed",
     "SimulatedBroker",
     "Strategy",
     "StrategyLifecycleError",
+    "T1SellableRule",
     "TradingDayIterator",
+    "TradingRuleSet",
     "UnsupportedOrderTypeError",
     "build_view",
     "normalize_percent",

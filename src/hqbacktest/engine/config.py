@@ -1,16 +1,20 @@
 """BacktestConfig: minimum user-facing configuration for the engine.
 
-Only the fields strictly required by task 5 are defined here. Order-side
-options (cost model, adjustment policy, etc.) are added in later tasks.
+Task 5 added date + cash + source fields. Task 8 adds pluggable
+`TradingRuleSet` and `CostModel` so the engine uses explicit rules and
+explicit fees (no hidden constants).
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Optional
 
 from ..data.errors import InvalidDataError
 from ..data.hqdata_portal import DEFAULT_DATA_ROOT
 from ..data.validators import validate_yyyymmdd
+from .cost_model import CostModel, DefaultCostModel
 from .errors import ConfigurationError
+from .rule_set import DEFAULT_V01_RULES, TradingRuleSet
 
 
 @dataclass
@@ -22,6 +26,10 @@ class BacktestConfig:
     `source` may be empty here; the engine enforces the requirement at run
     time (so configuration validation errors surface as `ConfigurationError`
     rather than `DataPortalNotConfigured`).
+
+    `rule_set` and `cost_model` are pluggable; the engine constructs them
+    from defaults if not supplied. Rates in `DefaultCostModel` are explicit
+    (TODO task 8 verification: no hidden constants).
     """
 
     start_date: str
@@ -29,6 +37,10 @@ class BacktestConfig:
     initial_cash: Decimal
     source: str = ""
     data_root: str = DEFAULT_DATA_ROOT
+    rule_set: TradingRuleSet = field(
+        default_factory=lambda: TradingRuleSet(DEFAULT_V01_RULES)
+    )
+    cost_model: CostModel = field(default_factory=lambda: DefaultCostModel())
 
     def __post_init__(self) -> None:
         try:
@@ -55,3 +67,7 @@ class BacktestConfig:
                 ) from exc
         if self.initial_cash < 0:
             raise ConfigurationError("initial_cash must be non-negative")
+        if not isinstance(self.rule_set, TradingRuleSet):
+            raise ConfigurationError("rule_set must be a TradingRuleSet instance")
+        if not isinstance(self.cost_model, CostModel):
+            raise ConfigurationError("cost_model must satisfy the CostModel protocol")

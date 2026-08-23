@@ -32,12 +32,15 @@ from hqbacktest.engine import (
     BacktestResult,
     BaseStrategy,
     Context,
+    CostModel,
+    DefaultCostModel,
     EngineEvent,
     EventLog,
     NullStrategy,
     SimulatedBroker,
     Strategy,
     TradingDayIterator,
+    TradingRuleSet,
 )
 
 __version__ = "0.1.0"
@@ -53,9 +56,11 @@ __all__ = [
     "CacheKey",
     "Context",
     "CorporateActionAdjustment",
+    "CostModel",
     "DataCache",
     "DataVersion",
     "DataView",
+    "DefaultCostModel",
     "EngineEvent",
     "EventLog",
     "EventType",
@@ -76,5 +81,6 @@ __all__ = [
     "SimulatedBroker",
     "Strategy",
     "TradingDayIterator",
+    "TradingRuleSet",
     "resolve_source_location",
 ]

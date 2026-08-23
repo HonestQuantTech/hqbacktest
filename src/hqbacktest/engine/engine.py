@@ -1,21 +1,21 @@
 """BacktestEngine: event clock plus controlled strategy context.
 
-Responsibilities after task 7:
+Responsibilities after task 8:
     - Build a `MarketDataPortal` from `BacktestConfig` (default: CSV portal).
     - Iterate the trading days returned by the portal (no natural-day loop).
     - Dispatch the five phases per day in contract §4 order.
     - Fire `strategy.initialize` exactly once and lock the universe after it.
-    - At the `OPEN_MATCH` phase, hand pending orders to `SimulatedBroker`,
-      apply the resulting fills to the portfolio, and mark rejections on
-      the orders (with reason + detail).
+    - At the `OPEN_MATCH` phase, hand pending orders to `SimulatedBroker`
+      with the configured `TradingRuleSet` and `CostModel`, apply the
+      resulting fills to the portfolio, and mark rejections on the orders
+      (with rule name / reason / detail).
     - After the last trading day, cancel still-pending orders with reason
       `BACKTEST_ENDED` (contract §4); the run is never extended to fill them.
     - Maintain a single `EventLog` covering the whole run.
     - Build a `BacktestResult` with the configuration snapshot, the log and
       the list of dates actually exercised.
 
-Out of scope (deferred to tasks 8/9/10):
-    - Cost model and fees (always zero in v0.1).
+Out of scope (deferred to tasks 9/10):
     - Adjustment policy and corporate-action handling.
     - Performance metrics, snapshots, persistence.
 """
@@ -63,7 +63,13 @@ class BacktestEngine:
         self._config = config
         self._strategy = strategy if strategy is not None else NullStrategy()
         self._portal = portal
-        self._broker = broker if broker is not None else SimulatedBroker()
+        # An explicitly passed broker keeps its own cost model; otherwise
+        # the broker is built from the configured one (never silently mixed).
+        self._broker = (
+            broker
+            if broker is not None
+            else SimulatedBroker(cost_model=config.cost_model)
+        )
         self._event_log = EventLog()
         self._portfolio = Portfolio(initial_cash=config.initial_cash)
         self._initialized = False
@@ -216,24 +222,36 @@ class BacktestEngine:
             )
             raise RunFailed(today, phase_name, exc) from exc
 
+    def _sellable_for(self, symbol: str) -> int:
+        pos = self._portfolio.positions.get(symbol)
+        return pos.sellable_quantity if pos else 0
+
     def _on_open_match(self, today: str, pending: List[Order]) -> None:
         """Match pending orders at `OPEN_MATCH(today)` and apply fills.
 
-        The broker produces a `Fill` for each PENDING order (or rejects on
-        missing/invalid data). The engine then applies each fill to the
-        portfolio; typed ledger errors (`InsufficientCashError` /
-        `InsufficientSharesError`) become order rejections, while any other
-        ledger error is a programming bug and aborts the run via RunFailed.
+        Each order goes through `TradingRuleSet.evaluate` first; the first
+        denial short-circuits with a typed rejection. Surviving orders
+        receive a `Fill` whose fees come from `CostModel.compute`; the
+        engine then applies each fill to the portfolio. Typed ledger
+        errors (`InsufficientCashError` / `InsufficientSharesError`)
+        become rejections; any other ledger error is a programming bug and
+        aborts the run via `RunFailed`.
         """
-        results = self._broker.match(pending, self.portal, today)
-        for order, fill, broker_reason, broker_detail in results:
+        results = self._broker.match(
+            pending,
+            self.portal,
+            today,
+            self._config.rule_set,
+            self._portfolio.cash,
+            self._sellable_for,
+        )
+        for order, fill, reject_reason, reject_detail in results:
             if fill is None:
-                # Broker rejected (data-side failure).
                 self._reject_order(
                     order,
                     today,
-                    broker_reason or RejectReason.OTHER,
-                    broker_detail or "",
+                    reject_reason or RejectReason.OTHER,
+                    reject_detail or "",
                 )
                 continue
             try:
@@ -248,9 +266,8 @@ class BacktestEngine:
                     order, today, RejectReason.INSUFFICIENT_SHARES, str(exc)
                 )
                 continue
-            # Fill applied: record it on the order (keeps fill_ids,
-            # filled_quantity and avg_fill_price in sync) — record_fill
-            # transitions the order to FILLED when the quantity is complete.
+            # Fill applied: record on the order (keeps fill_ids,
+            # filled_quantity and avg_fill_price in sync).
             order.record_fill(fill.fill_id, fill.quantity, fill.price, at=today)
             self._event_log.record(
                 EngineEvent(
@@ -258,7 +275,10 @@ class BacktestEngine:
                     phase=EventType.ORDER_FILLED,
                     order_id=order.order_id,
                     fill_id=fill.fill_id,
-                    detail=f"fill@{fill.price} qty={fill.quantity}",
+                    detail=(
+                        f"fill@{fill.price} qty={fill.quantity} "
+                        f"comm={fill.commission} stamp={fill.stamp_tax}"
+                    ),
                 )
             )
 

@@ -21,7 +21,7 @@ def test_version_is_non_empty_string():
 
 
 def test_public_api_includes_domain_models():
-    """After task 6, the package re-exports domain, data and engine layers."""
+    """After task 8, the package re-exports domain, data and engine layers."""
     import hqbacktest
 
     expected = {
@@ -35,9 +35,11 @@ def test_public_api_includes_domain_models():
         "CacheKey",
         "Context",
         "CorporateActionAdjustment",
+        "CostModel",
         "DataCache",
         "DataVersion",
         "DataView",
+        "DefaultCostModel",
         "EngineEvent",
         "EventLog",
         "EventType",
@@ -58,6 +60,7 @@ def test_public_api_includes_domain_models():
         "SimulatedBroker",
         "Strategy",
         "TradingDayIterator",
+        "TradingRuleSet",
         "resolve_source_location",
     }
     assert set(hqbacktest.__all__) == expected

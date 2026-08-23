@@ -53,6 +53,42 @@ def test_config_default_data_root_is_hqdata_default():
     assert cfg.data_root == "~/.hqdata"
 
 
+def test_config_defaults_to_v01_rule_set_and_cost_model():
+    from hqbacktest.engine.cost_model import DefaultCostModel
+    from hqbacktest.engine.rule_set import DEFAULT_V01_RULES
+
+    cfg = BacktestConfig(
+        start_date="20240102",
+        end_date="20240104",
+        initial_cash="100000",
+        source="tushare",
+    )
+    assert [r.name for r in cfg.rule_set.rules] == [r.name for r in DEFAULT_V01_RULES]
+    assert isinstance(cfg.cost_model, DefaultCostModel)
+
+
+def test_config_rejects_non_rule_set():
+    with pytest.raises(ConfigurationError):
+        BacktestConfig(
+            start_date="20240102",
+            end_date="20240104",
+            initial_cash="100000",
+            source="tushare",
+            rule_set="not-a-rule-set",  # type: ignore[arg-type]
+        )
+
+
+def test_config_rejects_non_cost_model():
+    with pytest.raises(ConfigurationError):
+        BacktestConfig(
+            start_date="20240102",
+            end_date="20240104",
+            initial_cash="100000",
+            source="tushare",
+            cost_model=object(),  # type: ignore[arg-type]
+        )
+
+
 def test_context_exposes_portfolio_and_log():
     portfolio = Portfolio(initial_cash=Decimal("100000"))
     log = EventLog()

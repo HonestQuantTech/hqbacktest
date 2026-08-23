@@ -104,12 +104,25 @@ def _ready_order(order: Order) -> Order:
 # --------------------------------------------------------------------- #
 
 
+def _match_one_broker(broker, order, portal, today):
+    """Match a single order through the broker with no rule/cash checks."""
+    from hqbacktest.engine.rule_set import DEFAULT_V01_RULES, TradingRuleSet
+
+    return broker.match(
+        [order],
+        portal,
+        today,
+        TradingRuleSet(DEFAULT_V01_RULES),
+        Decimal("1000000"),  # plenty of cash
+        lambda _symbol: 10000,  # plenty of sellable
+    )[0]
+
+
 def test_broker_match_buy_returns_fill():
     portal = _portal(["20240102"])
     broker = SimulatedBroker()
     order = _ready_order(_order("600000.SH", Side.BUY, 100))
-    results = broker.match([order], portal, "20240102")
-    order_result, fill, reason, detail = results[0]
+    _, fill, reason, detail = _match_one_broker(broker, order, portal, "20240102")
     assert reason is None and detail is None
     assert fill is not None
     assert fill.symbol == "600000.SH"
@@ -124,34 +137,64 @@ def test_broker_match_sell_returns_fill():
     portal = _portal(["20240102"])
     broker = SimulatedBroker()
     order = _ready_order(_order("600000.SH", Side.SELL, 100))
-    results = broker.match([order], portal, "20240102")
-    _, fill, reason, _ = results[0]
+    _, fill, reason, _ = _match_one_broker(broker, order, portal, "20240102")
     assert reason is None
     assert fill is not None
     assert fill.side is Side.SELL
     assert fill.amount == Decimal("-1000.00")
 
 
-def test_broker_match_rejects_missing_bar():
+def test_broker_match_rejects_missing_bar_via_rule_set():
+    """A suspended / missing bar is a BUSINESS rejection, not a run failure.
+
+    Contract §4: 停牌标的不可成交, but the run must continue. The broker
+    downgrades `MissingDataError` to `bar_available=False` and the
+    NonTradingDayRule rejects with MISSING_DATA. Only `InvalidDataError`
+    (corrupt snapshot) and I/O errors abort the run.
+    """
     portal = _portal(["20240102"])  # only one day
     broker = SimulatedBroker()
     order = _ready_order(_order("600000.SH", Side.BUY, 100))
-    results = broker.match([order], portal, "20240103")  # not in calendar
-    _, fill, reason, detail = results[0]
+    _, fill, reason, detail = _match_one_broker(broker, order, portal, "20240103")
     assert fill is None
     assert reason is RejectReason.MISSING_DATA
+    assert "non_trading_day" in detail
+
+
+def test_broker_rejects_priceless_order_even_without_invalid_price_rule():
+    """A custom rule set that drops InvalidPriceRule still cannot fill at an
+    unknown price: the broker rejects defensively instead of crashing."""
+    from hqbacktest.engine.rule_set import (
+        LongOnlyRule,
+        NonTradingDayRule,
+        TradingRuleSet,
+    )
+
+    portal = _portal(["20240102"])
+    bar = portal.bars_by_symbol["600000.SH"][0]
+    object.__setattr__(bar, "open", None)  # invalid price, bar present
+    broker = SimulatedBroker()
+    order = _ready_order(_order("600000.SH", Side.BUY, 100))
+    rules = TradingRuleSet([LongOnlyRule(), NonTradingDayRule()])
+    _, fill, reason, _ = broker.match(
+        [order],
+        portal,
+        "20240102",
+        rules,
+        Decimal("1000000"),
+        lambda _symbol: 10000,
+    )[0]
+    assert fill is None
+    assert reason is RejectReason.INVALID_PRICE
 
 
 def test_broker_match_rejects_invalid_price():
     portal = _portal(["20240102"])
-    # Inject an invalid open price into the stored bar by bypassing the
-    # frozen-dataclass invariant (Bar.__post_init__ would reject <=0).
     bar = portal.bars_by_symbol["600000.SH"][0]
     object.__setattr__(bar, "open", None)
     broker = SimulatedBroker()
     order = _ready_order(_order("600000.SH", Side.BUY, 100))
-    results = broker.match([order], portal, "20240102")
-    _, fill, reason, _ = results[0]
+    _, fill, reason, _ = _match_one_broker(broker, order, portal, "20240102")
     assert fill is None
     assert reason is RejectReason.INVALID_PRICE
 
@@ -160,8 +203,7 @@ def test_broker_match_skips_non_pending_order():
     portal = _portal(["20240102"])
     broker = SimulatedBroker()
     order = _order("600000.SH", Side.BUY, 100)  # NEW, not PENDING
-    results = broker.match([order], portal, "20240102")
-    _, fill, reason, _ = results[0]
+    _, fill, reason, _ = _match_one_broker(broker, order, portal, "20240102")
     assert fill is None
     assert reason is RejectReason.OTHER
 
@@ -173,7 +215,21 @@ def test_broker_match_produces_monotonic_fill_ids():
         _ready_order(_order("600000.SH", Side.BUY, 100, order_id="O1")),
         _ready_order(_order("600000.SH", Side.BUY, 100, order_id="O2")),
     ]
-    results = broker.match(orders, portal, "20240102")
+    results = broker.match(
+        orders,
+        portal,
+        "20240102",
+        __import__(
+            "hqbacktest.engine.rule_set",
+            fromlist=["TradingRuleSet", "DEFAULT_V01_RULES"],
+        ).TradingRuleSet(
+            __import__(
+                "hqbacktest.engine.rule_set", fromlist=["DEFAULT_V01_RULES"]
+            ).DEFAULT_V01_RULES
+        ),
+        Decimal("1000000"),
+        lambda _symbol: 10000,
+    )
     fill_ids = [r[1].fill_id for r in results]
     assert fill_ids[0] != fill_ids[1]
     assert fill_ids[0].startswith("F20240102-")
@@ -319,7 +375,14 @@ def test_engine_corrupt_bar_data_aborts_run_not_rejection():
 
 
 def test_engine_conservation_cash_plus_market_value():
-    """After every day, cash + market_value(initial_cash) equals initial + sum(net fills)."""
+    """Cash + market_value == initial - fees + realized PnL after each day.
+
+    With the default cost model (0.025% commission with 5 CNY floor + 0.1%
+    stamp tax on SELL), a buy-sell-buy schedule on a 10 CNY symbol leaves
+    the portfolio with a known cash position. The test verifies the cash
+    delta equals -sum(commissions) - sum(stamp_taxes), i.e. the v0.1 fees
+    are correctly applied and the run still respects cash conservation.
+    """
 
     class Alternate(BaseStrategy):
         def initialize(self, context):
@@ -328,11 +391,9 @@ def test_engine_conservation_cash_plus_market_value():
 
         def on_bar(self, context, data):
             self.day_index += 1
-            # Alternate: buy then sell
             if self.day_index % 2 == 1:
                 context.order("600000.SH", 100)
             else:
-                # Sell the 100 we just bought (after settle_t1)
                 context.order("600000.SH", -100)
 
     p = _portal(["20240102", "20240103", "20240104", "20240105"])
@@ -341,18 +402,25 @@ def test_engine_conservation_cash_plus_market_value():
     )
     engine.run()
     portfolio = engine.portfolio
-    # In this schedule: day 1 BUY (matches day 2), day 2 SELL (matches day 3),
-    # day 3 BUY (matches day 4), day 4 SELL (matches day 5 = end_date, no match).
-    # End-of-run orders stay PENDING (no OPEN_MATCH after the last day).
-    # Cash flow: -1000, +1000, -1000.
-    # At end: cash = 99000. Position: 100 shares. Market value: 1000.
-    assert portfolio.cash == Decimal("99000.00")
+    # Two matched BUYs, one matched SELL (the last SELL is PENDING — no OPEN_MATCH after).
+    # Per-fill fees:
+    #   BUY 1:  commission = max(1000 * 0.00025, 5) = 5.00
+    #   SELL 1: commission = max(5, 5) = 5.00; stamp_tax = 1000 * 0.001 = 1.00
+    #   BUY 2:  commission = 5.00
+    # Total fees = 5 + 5 + 1 + 5 = 16. Net cash flow = -5 + 994 - 5 = 984 ... wait:
+    # Actually gross BUY = -1000, fee = -5; gross SELL = +1000, fee = -5, stamp = -1.
+    # Net cash flow = -1005 + 994 - 1005 = -1016.
+    # Final cash = 100000 - 1016 = 98984.
+    assert portfolio.cash == Decimal("98984.00")
     assert portfolio.market_value({"600000.SH": Decimal("10.0000")}) == Decimal(
         "1000.00"
     )
     assert portfolio.cash + portfolio.market_value(
         {"600000.SH": Decimal("10.0000")}
-    ) == Decimal("100000.00")
+    ) == Decimal("99984.00")
+    # Fees live in `realized_pnl` via the broker + portfolio.apply_fill path.
+    fills = [e for e in engine.event_log.all() if e.phase is EventType.ORDER_FILLED]
+    assert len(fills) == 3
 
 
 def test_engine_insufficient_cash_rejects_order():
@@ -415,13 +483,14 @@ def test_engine_t_plus_one_sell_only_works_after_settle():
     )
     engine.run()
     portfolio = engine.portfolio
-    assert portfolio.cash == Decimal("100000")  # bought at 10, sold at 10
+    # BUY 5 + SELL 5 + SELL stamp 1 = 11. Final cash = 100000 - 11 = 99989.
+    assert portfolio.cash == Decimal("99989.00")
     # No positions left.
     assert all(pos.quantity == 0 for pos in portfolio.positions.values())
 
 
 def test_engine_missing_open_price_rejects_order():
-    """An order against a date without a bar triggers MISSING_DATA rejection."""
+    """An open price <= 0 produces INVALID_PRICE rejection (rule set)."""
 
     class SubmitAlways(BaseStrategy):
         def initialize(self, context):
@@ -430,17 +499,43 @@ def test_engine_missing_open_price_rejects_order():
         def on_bar(self, context, data):
             context.order("600000.SH", 100)
 
-    # Two trading days; remove the bar on day 3 so OPEN_MATCH(20240103)
-    # finds no bar.
     p = InMemoryDataPortal(calendar=["20240102", "20240103"])
     p.add_bar(_bar("20240102"))
-    # No bar on 20240103 -> MISSING_DATA.
+    p.add_bar(_bar("20240103"))
+    # Inject an invalid open price into the day-3 bar.
+    bar = p.bars_by_symbol["600000.SH"][1]
+    object.__setattr__(bar, "open", None)
     engine = BacktestEngine(
         _config("20240102", "20240103"), strategy=SubmitAlways(), portal=p
     )
     engine.run()
+    errors = [e for e in engine.event_log.all() if e.error == "INVALID_PRICE"]
+    assert len(errors) == 1
+
+
+def test_engine_missing_bar_rejects_order_and_run_continues():
+    """An order against a suspended symbol's missing bar is rejected with
+    MISSING_DATA; the run completes normally (contract §4: 停牌不可成交)."""
+
+    class SubmitAlways(BaseStrategy):
+        def initialize(self, context):
+            context.set_universe(["600000.SH"])
+
+        def on_bar(self, context, data):
+            context.order("600000.SH", 100)
+
+    p = InMemoryDataPortal(calendar=["20240102", "20240103"])
+    p.add_bar(_bar("20240102"))
+    # No bar on 20240103 -> order rejected, run completes.
+    engine = BacktestEngine(
+        _config("20240102", "20240103"), strategy=SubmitAlways(), portal=p
+    )
+    result = engine.run()
+    assert result.trading_days == ["20240102", "20240103"]
     errors = [e for e in engine.event_log.all() if e.error == "MISSING_DATA"]
     assert len(errors) == 1
+    assert errors[0].phase is EventType.ORDER_REJECTED
+    assert "non_trading_day" in errors[0].detail
 
 
 def test_engine_invalid_open_price_rejects_order():
@@ -516,9 +611,22 @@ def test_engine_conservation_holds_at_every_day_end():
     """Task 7 verification: cash + Σ(quantity × avg_cost) == initial cash +
     realized pnl at the end of EVERY trading day, not just at run end.
 
-    Uniform prices (open == close == 10.00) and zero fees keep the identity
-    exact: realized pnl is always 0 and avg_cost is exactly 10.0000.
+    We use a zero-fee cost model so the identity is exact (realized pnl is
+    always 0 and avg_cost is exactly 10.0000). Task 8 added fees; this test
+    locks the conservation invariant under the no-fee special case.
     """
+
+    from hqbacktest.engine.cost_model import Cost, CostModel
+    from hqbacktest.engine.config import BacktestConfig
+    from hqbacktest.engine.rule_set import DEFAULT_V01_RULES, TradingRuleSet
+
+    class ZeroCostModel:
+        def compute(self, order, price, quantity):
+            return Cost(
+                commission=Decimal("0"),
+                stamp_tax=Decimal("0"),
+                transfer_fee=Decimal("0"),
+            )
 
     class Alternating(BaseStrategy):
         def initialize(self, context):
@@ -540,7 +648,6 @@ def test_engine_conservation_holds_at_every_day_end():
             assert context.cash() + held_value == Decimal("100000")
             self.checked_days += 1
 
-    # All bars at exactly 10.00 so the identity has no rounding drift.
     days = ["20240102", "20240103", "20240104", "20240105"]
     p = InMemoryDataPortal(calendar=days)
     for d in days:
@@ -555,10 +662,14 @@ def test_engine_conservation_holds_at_every_day_end():
                 volume=1000,
             )
         )
-    strategy = Alternating()
-    engine = BacktestEngine(
-        _config("20240102", "20240105"), strategy=strategy, portal=p
+    cfg = BacktestConfig(
+        start_date="20240102",
+        end_date="20240105",
+        initial_cash=Decimal("100000"),
+        source="tushare",
+        cost_model=ZeroCostModel(),
     )
+    strategy = Alternating()
+    engine = BacktestEngine(cfg, strategy=strategy, portal=p)
     engine.run()
-    # The invariant was asserted inside after_trading_end for all 4 days.
     assert strategy.checked_days == 4
