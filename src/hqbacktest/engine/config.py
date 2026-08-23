@@ -1,8 +1,8 @@
 """BacktestConfig: minimum user-facing configuration for the engine.
 
-Task 5 added date + cash + source fields. Task 8 adds pluggable
-`TradingRuleSet` and `CostModel` so the engine uses explicit rules and
-explicit fees (no hidden constants).
+Task 5 added date + cash + source fields. Task 8 added pluggable
+`TradingRuleSet` and `CostModel` (explicit fees). Task 9 added the
+`adjustment_policy` field with strict "none"-only validation.
 """
 
 from dataclasses import dataclass, field
@@ -12,9 +12,15 @@ from typing import Optional
 from ..data.errors import InvalidDataError
 from ..data.hqdata_portal import DEFAULT_DATA_ROOT
 from ..data.validators import validate_yyyymmdd
+from .corporate_actions import V01_ADJUSTMENT_POLICY
 from .cost_model import CostModel, DefaultCostModel
 from .errors import ConfigurationError
 from .rule_set import DEFAULT_V01_RULES, TradingRuleSet
+
+# Re-exported for convenience; the single definition lives in
+# `corporate_actions.py` (imported above). The corresponding enum lives in
+# `domain.enums.AdjustmentPolicy`.
+__all__ = ["BacktestConfig", "V01_ADJUSTMENT_POLICY"]
 
 
 @dataclass
@@ -30,6 +36,11 @@ class BacktestConfig:
     `rule_set` and `cost_model` are pluggable; the engine constructs them
     from defaults if not supplied. Rates in `DefaultCostModel` are explicit
     (TODO task 8 verification: no hidden constants).
+
+    `adjustment_policy` MUST be "none" in v0.1; any other value is
+    rejected at validation time. The corresponding enum lives in
+    `domain.enums.AdjustmentPolicy`; future values (e.g.
+    `factor_total_return`) are reserved but not implemented.
     """
 
     start_date: str
@@ -41,6 +52,7 @@ class BacktestConfig:
         default_factory=lambda: TradingRuleSet(DEFAULT_V01_RULES)
     )
     cost_model: CostModel = field(default_factory=lambda: DefaultCostModel())
+    adjustment_policy: str = V01_ADJUSTMENT_POLICY
 
     def __post_init__(self) -> None:
         try:
@@ -71,3 +83,15 @@ class BacktestConfig:
             raise ConfigurationError("rule_set must be a TradingRuleSet instance")
         if not isinstance(self.cost_model, CostModel):
             raise ConfigurationError("cost_model must satisfy the CostModel protocol")
+        # Adjustment policy: v0.1 only accepts "none". Any other value is
+        # rejected with an explicit reason (TODO task 9 verification:
+        # "配置只接受 AdjustmentPolicy=none, 其他值均带明确原因拒绝").
+        if not isinstance(self.adjustment_policy, str):
+            raise ConfigurationError("adjustment_policy must be a string")
+        if self.adjustment_policy != V01_ADJUSTMENT_POLICY:
+            raise ConfigurationError(
+                f"v0.1 only supports adjustment_policy={V01_ADJUSTMENT_POLICY!r}; "
+                f"got {self.adjustment_policy!r}. 'factor_total_return' requires "
+                "a CorporateActionProvider implementation with full accounting "
+                "semantics and regression tests; not in v0.1."
+            )

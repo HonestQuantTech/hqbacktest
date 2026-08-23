@@ -1,6 +1,6 @@
 """BacktestEngine: event clock plus controlled strategy context.
 
-Responsibilities after task 8:
+Responsibilities after task 9:
     - Build a `MarketDataPortal` from `BacktestConfig` (default: CSV portal).
     - Iterate the trading days returned by the portal (no natural-day loop).
     - Dispatch the five phases per day in contract §4 order.
@@ -11,12 +11,14 @@ Responsibilities after task 8:
       (with rule name / reason / detail).
     - After the last trading day, cancel still-pending orders with reason
       `BACKTEST_ENDED` (contract §4); the run is never extended to fill them.
+    - Record the active adjustment policy and the factor-diagnostics
+      collector in the result (task 9). v0.1 only supports "none" so the
+      policy marker is informational; factor diagnostics are dormant.
     - Maintain a single `EventLog` covering the whole run.
-    - Build a `BacktestResult` with the configuration snapshot, the log and
-      the list of dates actually exercised.
+    - Build a `BacktestResult` with the configuration snapshot, the log,
+      the trading days, the policy, and the diagnostics.
 
-Out of scope (deferred to tasks 9/10):
-    - Adjustment policy and corporate-action handling.
+Out of scope (deferred to task 10):
     - Performance metrics, snapshots, persistence.
 """
 
@@ -33,6 +35,10 @@ from ..domain.portfolio import Portfolio
 from .broker import SimulatedBroker
 from .config import BacktestConfig
 from .context import Context
+from .corporate_actions import (
+    FactorDiagnosticCollector,
+    V01_ADJUSTMENT_POLICY,
+)
 from .errors import (
     ConfigurationError,
     DataPortalNotConfigured,
@@ -63,16 +69,16 @@ class BacktestEngine:
         self._config = config
         self._strategy = strategy if strategy is not None else NullStrategy()
         self._portal = portal
-        # An explicitly passed broker keeps its own cost model; otherwise
-        # the broker is built from the configured one (never silently mixed).
+        # Task 8: broker must share the configured CostModel.
+        cost = config.cost_model
         self._broker = (
-            broker
-            if broker is not None
-            else SimulatedBroker(cost_model=config.cost_model)
+            broker if broker is not None else SimulatedBroker(cost_model=cost)
         )
         self._event_log = EventLog()
         self._portfolio = Portfolio(initial_cash=config.initial_cash)
+        self._factor_diagnostics = FactorDiagnosticCollector()
         self._initialized = False
+        self._result: Optional[BacktestResult] = None
 
     # ------------------------------------------------------------------ #
     # Accessors
@@ -100,6 +106,15 @@ class BacktestEngine:
     def portfolio(self) -> Portfolio:
         return self._portfolio
 
+    @property
+    def factor_diagnostics(self) -> FactorDiagnosticCollector:
+        return self._factor_diagnostics
+
+    @property
+    def result(self) -> Optional[BacktestResult]:
+        """Most recent run's result, or None if `run()` has not been called."""
+        return self._result
+
     # ------------------------------------------------------------------ #
     # Run
     # ------------------------------------------------------------------ #
@@ -121,6 +136,7 @@ class BacktestEngine:
         result = BacktestResult(
             config_snapshot=asdict(self._config),
             event_log=self._event_log,
+            adjustment_policy=self._config.adjustment_policy,
         )
         iterator = TradingDayIterator(
             portal=portal,
@@ -143,6 +159,10 @@ class BacktestEngine:
             self._cancel_leftover_orders(context, result.trading_days)
         finally:
             context._mark_run_finished()
+        result.factor_diagnostics = list(self._factor_diagnostics.all())
+        # Only publish the result after a fully successful run: a failed run
+        # must not leave a half-populated BacktestResult on the engine.
+        self._result = result
         return result
 
     # ------------------------------------------------------------------ #

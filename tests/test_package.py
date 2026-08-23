@@ -21,12 +21,13 @@ def test_version_is_non_empty_string():
 
 
 def test_public_api_includes_domain_models():
-    """After task 8, the package re-exports domain, data and engine layers."""
+    """After task 9, the package re-exports domain, data and engine layers."""
     import hqbacktest
 
     expected = {
         "__version__",
         "AccountSnapshot",
+        "AdjustmentPolicy",
         "BacktestConfig",
         "BacktestEngine",
         "BacktestResult",
@@ -34,7 +35,9 @@ def test_public_api_includes_domain_models():
         "BaseStrategy",
         "CacheKey",
         "Context",
+        "CorporateAction",
         "CorporateActionAdjustment",
+        "CorporateActionProvider",
         "CostModel",
         "DataCache",
         "DataVersion",
@@ -43,6 +46,8 @@ def test_public_api_includes_domain_models():
         "EngineEvent",
         "EventLog",
         "EventType",
+        "FactorDiagnostic",
+        "FactorDiagnosticCollector",
         "Fill",
         "HqDataCsvPortal",
         "InMemoryDataPortal",

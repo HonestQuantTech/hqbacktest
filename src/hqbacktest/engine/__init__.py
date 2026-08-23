@@ -6,8 +6,18 @@ Re-exports the public API of the engine package:
 """
 
 from .broker import SimulatedBroker
-from .config import BacktestConfig
+from .config import V01_ADJUSTMENT_POLICY, BacktestConfig
 from .context import Context
+from .corporate_actions import (
+    DIAGNOSTIC_KINDS,
+    FACTOR_TOTAL_RETURN_ADMISSION_CRITERIA,
+    REQUIRED_CORPORATE_ACTION_FIELDS,
+    CorporateAction,
+    CorporateActionProvider,
+    FactorDiagnostic,
+    FactorDiagnosticCollector,
+    analyze_factor_series,
+)
 from .cost_model import Cost, CostModel, DefaultCostModel
 from .engine import BacktestEngine
 from .errors import (
@@ -58,6 +68,8 @@ from .strategy import BaseStrategy, NullStrategy, Strategy
 __all__ = [
     "DEFAULT_V01_RULES",
     "PHASE_SCHEDULE",
+    "REQUIRED_CORPORATE_ACTION_FIELDS",
+    "V01_ADJUSTMENT_POLICY",
     "BacktestConfig",
     "BacktestEngine",
     "BacktestResult",
@@ -65,17 +77,20 @@ __all__ = [
     "CallbackAfterRunError",
     "ConfigurationError",
     "Context",
+    "CorporateAction",
+    "CorporateActionProvider",
     "Cost",
     "CostModel",
     "DataPortalNotConfigured",
     "DefaultCostModel",
-    (
-        "DefaultTradingRuleSet" if False else "DEFAULT_V01_RULES"
-    ),  # backward-compat alias below
     "DoubleInitializationError",
     "EngineError",
     "EngineEvent",
     "EventLog",
+    "FACTOR_TOTAL_RETURN_ADMISSION_CRITERIA",
+    "FactorDiagnostic",
+    "FactorDiagnosticCollector",
+    "DIAGNOSTIC_KINDS",
     "InsufficientCashRule",
     "InvalidPriceRule",
     "LongOnlyRule",
@@ -94,6 +109,7 @@ __all__ = [
     "StrategyLifecycleError",
     "T1SellableRule",
     "TradingDayIterator",
+    "analyze_factor_series",
     "TradingRuleSet",
     "UnsupportedOrderTypeError",
     "build_view",

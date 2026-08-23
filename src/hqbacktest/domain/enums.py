@@ -91,3 +91,21 @@ class PriceMode(Enum):
     """
 
     OPEN = "OPEN"
+
+
+class AdjustmentPolicy(Enum):
+    """Adjustment / company-action policy (task 9).
+
+    v0.1 only accepts `NONE`. Any other value is rejected at config
+    validation time with an explicit reason. The enum entry for
+    `FACTOR_TOTAL_RETURN` exists so that future tasks can use it as a
+    sentinel — but no implementation is provided in v0.1, and the
+    configuration validator refuses to load it.
+    """
+
+    NONE = "none"
+    # The entry below is intentionally not used in v0.1; it documents the
+    # only known future candidate. See `engine/corporate_actions.py` for
+    # the full admission criteria (accounting semantics + regression
+    # tests) that must be met before this is enabled.
+    FACTOR_TOTAL_RETURN = "factor_total_return"

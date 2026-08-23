@@ -40,7 +40,7 @@
 | 时间语义 | `before_trading_start(D)` 只能看到 D-1 及以前的数据，可提交在 D 开盘撮合的订单；`on_bar(D)` 在 D 收盘后看到 D 日线，订单最早在 D+1 开盘撮合。 |
 | 初始订单 | 首版只支持市价委托；默认按符合交易条件的开盘价全额成交。限价单、分笔、成交量参与率、盘中撮合均属后续能力。 |
 | 数据可见性 | 策略读取数据必须经过带 `visible_through` 截止日的 `DataView`；任何未来数据访问必须抛错。 |
-| 复权与公司行为 | 下单、现金、成交账本和 v0.1 净值使用未复权价格，且 `adjustment_policy` 固定为 `none`。因子仅可在同一数据源内计算相邻交易日比值，但不据此改变现金、持仓、可卖数量、成本价或净值；精确公司行为与因子总回报口径延后实现。 |
+| 复权与公司行为 | 下单、现金、成交账本和 v0.1 净值使用未复权价格，且 `adjustment_policy` 固定为 `none`。因子仅可在同一数据源内计算相邻交易日比值，但不据此改变现金、持仓、可卖数量、成本价或净值；精确公司行为与因子总回报口径延后实现。`CorporateActionProvider` 为设计草案（不实现）：`actions_for` 必返回含 `ex_date` / `cash_dividend_per_share` / `stock_dividend_ratio` / `rights_ratio` / `rights_price` / `tax_rate` / `conversion_ratio` / `fractional_share_handling` / `note` 等权威字段的对象；任一字段缺失时不得构造会计分录。 |
 | 结果 | 至少产出净值曲线、订单、成交、每日持仓、交易成本和基础绩效指标；结果必须能追溯到配置、代码版本和数据来源。 |
 
 ### 3.2 数据类型与精度
@@ -183,6 +183,7 @@
 | --- | --- | --- | --- |
 | 2026-08-17 | v0.1 初稿 | 依据 `TODO.md` 任务 1 首次固化契约 | hqbacktest 维护者 |
 | 2026-08-17 | v0.1 | 修正盘前订单的同日开盘撮合语义；明确收盘估值、结束订单、股票池资格与异常分类；因缺少精确公司行为会计，v0.1 仅支持 `AdjustmentPolicy=none` | hqbacktest 维护者 |
+| 2026-08-23 | v0.1 | 任务 9：公司行为扩展设计门槛落地——`BacktestConfig.adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 列为设计草案并锁定 10 个权威字段；`BacktestResult.adjustment_policy` 与 `factor_diagnostics` 字段已就位；因子诊断接口存在但 v0.1 不启用 | hqbacktest 维护者 |
 | 2026-08-17 | v0.1（已被后续修订取代） | 曾将 `source` 交给 `hqdata` 解析；该 API 驱动的数据边界已在 2026-08-23 被 CSV 快照契约取代 | hqbacktest 维护者 |
 | 2026-08-23 | v0.1 | 修正回测运行时数据边界：`hqbacktest` 直接只读 hqdata CLI 落盘 CSV；`data_root` 默认 `~/.hqdata`，不调用 `hqdata.api` 或网络数据源 | hqbacktest 维护者 |
 | 2026-08-23 | v0.1 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录污染 | hqbacktest 维护者 |
