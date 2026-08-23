@@ -23,7 +23,7 @@ Hatch/
 PDM/
 
 # Data files (local databases not committed)
-data/
+/data/
 *.csv
 *.parquet
 *.db

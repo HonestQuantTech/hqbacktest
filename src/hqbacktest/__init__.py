@@ -1,5 +1,15 @@
 """hqbacktest - A-share quantitative strategy backtest and trading simulation engine."""
 
+from hqbacktest.data import (
+    CacheKey,
+    DataCache,
+    DataVersion,
+    DataView,
+    HqDataCsvPortal,
+    InMemoryDataPortal,
+    MarketDataPortal,
+    resolve_source_location,
+)
 from hqbacktest.domain import (
     AccountSnapshot,
     Bar,
@@ -23,9 +33,16 @@ __all__ = [
     "__version__",
     "AccountSnapshot",
     "Bar",
+    "CacheKey",
     "CorporateActionAdjustment",
+    "DataCache",
+    "DataVersion",
+    "DataView",
     "EventType",
     "Fill",
+    "HqDataCsvPortal",
+    "InMemoryDataPortal",
+    "MarketDataPortal",
     "Order",
     "OrderStatus",
     "OrderType",
@@ -35,4 +52,5 @@ __all__ = [
     "PriceMode",
     "RejectReason",
     "Side",
+    "resolve_source_location",
 ]

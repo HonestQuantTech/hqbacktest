@@ -25,7 +25,9 @@ keywords = [
 
 # v0.1 task 2 skeleton: no runtime deps yet.
 # pandas / click / pydantic will be added when subsequent tasks need them.
-dependencies = []
+dependencies = [
+  "pandas>=2.0.0",
+]
 
 [project.urls]
 Homepage = "https://honestquant.com/hqbacktest"
@@ -50,6 +52,9 @@ include = ["hqbacktest*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "integration: marks tests as integration tests against real hqdata sources (skipped by default)",
+]
 
 [tool.black]
 line-length = 88

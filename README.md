@@ -7,10 +7,10 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 工程骨架阶段**：
+`hqbacktest` 当前处于**v0.1 数据层完成阶段**：
 
-- **已实现（任务 1–3 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照、日线与公司行为占位符）、订单状态机、`Decimal` 精度与 JSON 序列化，以及无网络单元测试。
-- **计划中（任务 4–13）：** 交易日历与历史股票池、数据可见性、策略生命周期、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
+- **已实现（任务 1–4 完成）：** 产品契约、可安装的 Python 包、领域模型、订单状态机、`Decimal` 精度与 JSON 序列化；以及 `MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验。
+- **计划中（任务 5–13）：** 策略生命周期、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -18,7 +18,7 @@
 
 `hqbacktest` 是 HonestQuant 量化系统的**策略回测与交易模拟层**，面向 A 股日线策略：
 
-- 对下：仅通过 `hqdata.api`（及包级同名导出）的公开函数读取交易日历、历史股票池、日线和复权因子；不导入 `hqdata.sources`，也不直接调用 Tushare、RiceQuant 或 AkShare SDK。
+- 对下：只读 `hqdata` CLI 已落盘的 CSV 快照，默认根目录为 `~/.hqdata`；不导入 `hqdata`、不直接调用 Tushare、RiceQuant 或 AkShare SDK，也不在回测运行时访问网络。
 - 对中：提供严格的交易日事件时钟、数据可见性控制、订单生命周期、虚拟经纪商、持仓账本和交易规则。
 - 对上：让策略只通过受控的 `Context` 和 `DataView` 读取数据、提交订单和查询组合，不接触数据源实现或修改内部账本。
 - 对外：输出可复现的净值、订单、成交、持仓、费用和绩效指标，用于研究和模拟，不连接真实券商。
@@ -26,15 +26,15 @@
 ```text
 策略 ──> Context / DataView ──> BacktestEngine ──> SimulatedBroker ──> Portfolio
 									  │
-									  └──> MarketDataPortal ──> hqdata.api ──> 数据源
+									  └──> MarketDataPortal ──> hqdata CSV snapshot
 ```
 
 ## 计划支持的主要功能
 
 | 功能 | 目标接口/产物 | 首版语义 | 当前状态 |
 | --- | --- | --- | :---: |
-| 交易日与历史股票池 | `MarketDataPortal` | 按回测日获取交易日和股票池，避免以今日股票列表产生幸存者偏差 | 计划中 |
-| 日线数据可见性 | `DataView.history()` | 盘前最多看到前一交易日；当天收盘后才可读取当天日线 | 计划中 |
+| 交易日与历史股票池 | `MarketDataPortal` | 按回测日获取交易日和股票池，避免以今日股票列表产生幸存者偏差 | 已实现 |
+| 日线数据可见性 | `DataView.history()` | 盘前最多看到前一交易日；当天收盘后才可读取当天日线 | 已实现 |
 | 策略生命周期 | `BaseStrategy` | `initialize`、盘前、收盘、日终四个回调 | 计划中 |
 | 下单与撤单 | `Context.order_*()` | 首版只支持市价委托，策略只能提交意图，不能直接改账户 | 计划中 |
 | 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交 | 计划中 |
@@ -70,7 +70,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已具备可安装的 Python 包骨架（任务 2 完成）。公开 API、领域模型、撮合引擎与命令行工具属于后续任务（任务 3–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
+`hqbacktest` v0.1 已完成可安装包和领域模型（任务 2–3）。受限数据层正在按 CSV 数据边界重构（任务 4）；策略生命周期、撮合引擎与命令行工具仍属于后续任务（任务 5–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
@@ -108,17 +108,16 @@ hqbacktest/
 
 ## 配置数据源
 
-`hqbacktest` **不直接读取本地行情文件，也不接触任何数据源 token**。所有数据由 `hqdata` 维护，引擎只调用 `hqdata.api` 的公开函数。
+`hqbacktest` 只读 hqdata CLI 已落盘的本地 CSV，不接触任何数据源 token，也不在回测运行时调用 `hqdata.api`。数据下载和更新须在回测前由 `hqdata` CLI 完成。
 
-回测配置中的 `source` 字段是一个**位置字符串**，由 `hqdata` 负责解析：
+回测配置使用 `data_root` 和 `source` 来定位已落盘数据。`data_root` 默认为 `~/.hqdata`，`source` 是其下的数据源目录名：
 
 | 写法 | 含义 |
 | --- | --- |
-| `"tushare"` | 使用默认根目录下的 Tushare 数据目录，即 `~/.hqdata/tushare` |
-| `"ricequant"` | 使用默认根目录下的 RiceQuant 数据目录，即 `~/.hqdata/ricequant` |
-| `"/home/<user>/.hqdata/tushare"` | 使用显式绝对路径，跳过名称解析 |
+| `data_root="~/.hqdata"`, `source="tushare"` | 使用 `~/.hqdata/tushare` |
+| `data_root="/mnt/market-data"`, `source="ricequant"` | 使用 `/mnt/market-data/ricequant` |
 
-数据写入 `~/.hqdata/{name}` 的工作由 `hqdata` 及其上层流程负责；hqbacktest 既不下载数据，也不保存凭证。任何真实 token、账户号或私密配置都**不应**提交到仓库，也不应出现在回测结果目录中。
+数据集必须包含 `calendar.csv`，以及按交易日组织的 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv` 与 `stock_factor/{YYYYMMDD}.csv`。这些文件由 `hqdata` CLI 在回测前写入；hqbacktest 既不下载数据，也不保存凭证。任何真实 token、账户号或私密配置都**不应**提交到仓库，也不应出现在回测结果目录中。
 
 ## 目标 Python 用法
 
@@ -147,6 +146,7 @@ config = BacktestConfig(
 	start_date="20200102",
 	end_date="20231229",
 	initial_cash="1000000",
+	data_root="~/.hqdata",
 	source="tushare",
 	adjustment_policy="none",
 )
@@ -177,7 +177,8 @@ result.save("results/moving-average")
 | --- | --- | --- |
 | `start_date` / `end_date` | `"20200102"` | 回测的包含式日期区间，格式为 `YYYYMMDD` |
 | `initial_cash` | `"1000000"` | 初始人民币现金；账本层将转换为精确金额类型 |
-| `source` | `"tushare"` 或 `/home/<user>/.hqdata/tushare` | 本次运行唯一的数据来源位置：名称（解析为 `~/.hqdata/{name}`）或绝对路径；不能在一次回测中混用 |
+| `data_root` | `"~/.hqdata"` | hqdata CSV 的根目录；可使用绝对路径覆盖 |
+| `source` | `"tushare"` | 本次运行唯一的数据源目录名，解析为 `{data_root}/{source}`；不能在一次回测中混用 |
 | `adjustment_policy` | `"none"` | v0.1 唯一合法值；精确公司行为会计完成并验证前，不支持因子总回报调整 |
 | `universe` | `["600000.SH"]` | 可由策略初始化或配置文件声明的目标股票池 |
 | `cost_model` | 配置节 | 佣金、最低佣金、印花税和可选过户费；费率必须显式配置 |
