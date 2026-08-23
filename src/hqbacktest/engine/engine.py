@@ -1,15 +1,16 @@
-"""BacktestEngine: minimum viable engine for task 5.
+"""BacktestEngine: event clock plus controlled strategy context.
 
-Responsibilities in this task:
+Responsibilities after task 6:
     - Build a `MarketDataPortal` from `BacktestConfig` (default: CSV portal).
     - Iterate the trading days returned by the portal (no natural-day loop).
     - Dispatch the five phases per day in contract §4 order.
+    - Fire `strategy.initialize` exactly once and lock the universe after it.
     - Maintain a single `EventLog` covering the whole run.
     - Build a `BacktestResult` with the configuration snapshot, the log and
       the list of dates actually exercised.
 
-Out of scope (deferred to tasks 6/7/8):
-    - Order lifecycle and matching (only data + clock here).
+Out of scope (deferred to tasks 7/8):
+    - Order matching (intents only accumulate in `Context._pending_orders`).
     - Cost model and fees.
     - Settlement, snapshots, performance metrics.
 """
@@ -106,16 +107,21 @@ class BacktestEngine:
             start=self._config.start_date,
             end=self._config.end_date,
         )
+        # No DataView is attached yet: `initialize` / `SESSION_START` have no
+        # market data access (contract §4). The scheduler publishes a
+        # properly bounded view per phase via `context._set_data_view`.
         context = Context(
-            current_date="",
+            current_date=self._config.start_date,
             portfolio=self._portfolio,
             event_log=self._event_log,
         )
-        self._initialize_strategy(context)
-
-        for today in iterator:
-            self._run_day_safely(today, portal, context)
-            result.trading_days.append(today)
+        try:
+            self._initialize_strategy(context)
+            for today in iterator:
+                self._run_day_safely(today, portal, context)
+                result.trading_days.append(today)
+        finally:
+            context._mark_run_finished()
         return result
 
     # ------------------------------------------------------------------ #
@@ -133,8 +139,16 @@ class BacktestEngine:
         return HqDataCsvPortal(source=source_name, data_root=data_root)
 
     def _initialize_strategy(self, context: Context) -> None:
-        """Fire `strategy.initialize` once; failures abort the run."""
-        context.phase = EventType.SESSION_START
+        """Fire `strategy.initialize` once; failures abort the run.
+
+        The context is marked initialized first so strategies can call
+        `set_universe` and read-only accessors from inside the override;
+        ordering and market data remain unavailable (contract §4: no data
+        and no orders during SESSION_START). The universe is locked as soon
+        as `initialize` returns, so later callbacks cannot redeclare it.
+        """
+        context._set_phase(EventType.SESSION_START)
+        context._mark_initialized()
         try:
             self._strategy.initialize(context)
         except Exception as exc:
@@ -148,7 +162,8 @@ class BacktestEngine:
             )
             raise RunFailed(self._config.start_date, "INITIALIZE", exc) from exc
         finally:
-            context.phase = None
+            context._lock_universe()
+            context._set_phase(None)
 
     def _run_day_safely(
         self, today: str, portal: MarketDataPortal, context: Context
@@ -161,9 +176,13 @@ class BacktestEngine:
                 context=context,
                 log=self._event_log,
             )
-        except (RunFailed, StrategyLifecycleError):
+        except RunFailed:
             raise
         except Exception as exc:
+            # StrategyLifecycleError raised inside a callback also lands here:
+            # contract rule 12 requires the date / phase / original exception
+            # to travel together, so run-time strategy misuse aborts the run
+            # as RunFailed (the original error stays on `.original`).
             # Record the failure in the phase where it actually happened so
             # the audit trail never misattributes it; fall back to RUN_FAILED
             # only when no phase context exists.

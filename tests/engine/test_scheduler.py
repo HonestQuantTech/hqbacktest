@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from hqbacktest.data import InMemoryDataPortal
+from hqbacktest.data import DataView, InMemoryDataPortal
 from hqbacktest.data.errors import FutureDataAccessError, InvalidDataError
 from hqbacktest.domain.bar import Bar
 from hqbacktest.domain.enums import EventType
@@ -42,11 +42,14 @@ def _portal_with_three_days():
     return p
 
 
-def _context(log: EventLog) -> Context:
+def _context(log: EventLog, *, portal=None, today="20240103") -> Context:
+    if portal is None:
+        portal = _portal_with_three_days()
     return Context(
-        current_date="",
+        current_date=today,
         portfolio=Portfolio(initial_cash=Decimal("100000")),
         event_log=log,
+        data_view=DataView(portal=portal, visible_through=today),
     )
 
 

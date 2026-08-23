@@ -97,19 +97,19 @@ def run_day(
     log: EventLog,
 ) -> None:
     """Fire the five phases for one trading day, in order."""
-    context.current_date = today
+    context._set_date(today)
     for entry in PHASE_SCHEDULE:
-        context.phase = entry.phase
+        context._set_phase(entry.phase)
         if entry.phase is EventType.SESSION_START:
             # Contract §4: SESSION_START exposes no market data and fires no
             # strategy callback; it only marks the start of the day.
-            context.visible_through = ""
+            context._set_data_view(None)
             log.record(
                 EngineEvent(date=today, phase=entry.phase, detail="no data access")
             )
             continue
         view = build_view(portal, entry, today)
-        context.visible_through = view.visible_through
+        context._set_data_view(view)
         # Phase start marker (always recorded, even for internal phases).
         log.record(
             EngineEvent(

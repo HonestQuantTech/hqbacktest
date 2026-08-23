@@ -41,3 +41,23 @@ class DataPortalNotConfigured(EngineError):
 
 class StrategyLifecycleError(EngineError):
     """Strategy misuse detected at the engine boundary (e.g. double-init)."""
+
+
+class NotInitializedError(StrategyLifecycleError):
+    """A strategy callback ran before `initialize()` was called."""
+
+
+class DoubleInitializationError(StrategyLifecycleError):
+    """`initialize()` was called more than once in the same run."""
+
+
+class CallbackAfterRunError(StrategyLifecycleError):
+    """A strategy method or context accessor was used after `run()` returned."""
+
+
+class UnsupportedOrderTypeError(StrategyLifecycleError):
+    """The strategy tried to place an order type that v0.1 does not support."""
+
+
+class NoPriceForOrderError(StrategyLifecycleError):
+    """An order helper could not determine a current price for the symbol."""

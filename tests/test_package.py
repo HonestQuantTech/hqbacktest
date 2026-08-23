@@ -21,7 +21,7 @@ def test_version_is_non_empty_string():
 
 
 def test_public_api_includes_domain_models():
-    """After task 5, the package re-exports domain, data and engine layers."""
+    """After task 6, the package re-exports domain, data and engine layers."""
     import hqbacktest
 
     expected = {
@@ -31,6 +31,7 @@ def test_public_api_includes_domain_models():
         "BacktestEngine",
         "BacktestResult",
         "Bar",
+        "BaseStrategy",
         "CacheKey",
         "Context",
         "CorporateActionAdjustment",

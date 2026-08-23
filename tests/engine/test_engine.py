@@ -21,6 +21,7 @@ from hqbacktest.domain.order import Order
 from hqbacktest.engine import (
     BacktestConfig,
     BacktestEngine,
+    NullStrategy,
     TradingDayIterator,
 )
 from hqbacktest.engine.errors import (
@@ -457,3 +458,66 @@ def test_engine_error_event_records_the_failing_phase():
     assert len(errors) == 1
     assert errors[0].phase is EventType.BAR_CLOSE
     assert errors[0].date == "20240102"
+
+
+def test_engine_rejects_order_from_after_trading_end():
+    """Contract §4: AFTER_TRADING_END is not orderable; the run must fail
+    loudly instead of silently queueing the order."""
+
+    class LateOrder(NullStrategy):
+        def after_trading_end(self, context):
+            context.order("600000.SH", 100)
+
+    engine = BacktestEngine(_config(), strategy=LateOrder(), portal=_portal())
+    with pytest.raises(RunFailed) as exc:
+        engine.run()
+    assert exc.value.phase == "AFTER_TRADING_END"
+
+
+def test_engine_rejects_order_and_data_from_initialize():
+    """Contract §4: initialize has no market data and cannot submit orders."""
+
+    class DataGrabber(NullStrategy):
+        def initialize(self, context):
+            context.history("600000.SH")
+
+    engine = BacktestEngine(_config(), strategy=DataGrabber(), portal=_portal())
+    with pytest.raises(RunFailed) as exc:
+        engine.run()
+    assert exc.value.phase == "INITIALIZE"
+
+    class EarlyOrder(NullStrategy):
+        def initialize(self, context):
+            context.order("600000.SH", 100)
+
+    engine = BacktestEngine(_config(), strategy=EarlyOrder(), portal=_portal())
+    with pytest.raises(RunFailed) as exc:
+        engine.run()
+    assert exc.value.phase == "INITIALIZE"
+
+
+def test_engine_rejects_set_universe_outside_initialize():
+    """Contract §4: the universe is immutable once the run starts."""
+
+    class LateUniverse(NullStrategy):
+        def on_bar(self, context, data):
+            context.set_universe(["600000.SH"])
+
+    engine = BacktestEngine(_config(), strategy=LateUniverse(), portal=_portal())
+    with pytest.raises(RunFailed) as exc:
+        engine.run()
+    assert exc.value.phase == "BAR_CLOSE"
+
+
+def test_engine_records_order_created_events_during_run():
+    class Buyer(NullStrategy):
+        def on_bar(self, context, data):
+            context.order("600000.SH", 100)
+
+    engine = BacktestEngine(_config(), strategy=Buyer(), portal=_portal())
+    engine.run()
+    created = [e for e in engine.event_log.all() if e.phase is EventType.ORDER_CREATED]
+    # One order per BAR_CLOSE, one per trading day.
+    assert len(created) == 3
+    assert all(e.order_id for e in created)
+    assert [e.date for e in created] == ["20240102", "20240103", "20240104"]

@@ -7,10 +7,10 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 引擎骨架完成阶段**：
+`hqbacktest` 当前处于**v0.1 策略接口完成阶段**：
 
-- **已实现（任务 1–5 完成）：** 产品契约、可安装的 Python 包、领域模型、订单状态机、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；以及日频事件时钟、最小 `BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志。订单撮合、费用与账本估值尚未接入。
-- **计划中（任务 6–13）：** 完整策略生命周期与受控交易上下文、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
+- **已实现（任务 1–6 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、最小 `BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；以及 `BaseStrategy` 生命周期、`Context` 只读 API（`cash` / `positions` / `universe` / `pending_orders` / `history` / `current_price` / `total_equity`）、受控下单意图（`order` / `order_value` / `order_target` / `order_target_value` / `order_target_percent` / `cancel_order`），以及`未初始化/重复初始化/回调外下单/越阶段读取行情/运行后访问`等生命周期错误。订单只积累为意图，撮合、费用与账本估值尚未接入。
+- **计划中（任务 7–13）：** 虚拟经纪商与开盘撮合、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -36,8 +36,8 @@
 | 交易日与历史股票池 | `MarketDataPortal` | 按回测日获取交易日和股票池，避免以今日股票列表产生幸存者偏差 | 已实现 |
 | 日线数据可见性 | `DataView.history()` | 盘前最多看到前一交易日；当天收盘后才可读取当天日线 | 已实现 |
 | 日频事件时钟 | `BacktestEngine`、`EventLog` | 五阶段固定顺序；盘前 D-1、收盘 D 的可见性切换；事件日志记录日期、阶段与错误原因；策略异常带日期和阶段 | 已实现 |
-| 策略生命周期 | `BaseStrategy` | `initialize`、盘前、收盘、日终四个回调（当前引擎只调用最小协议形态，完整受控 API 在任务 6 落地） | 部分实现 |
-| 下单与撤单 | `Context.order_*()` | 首版只支持市价委托，策略只能提交意图，不能直接改账户 | 计划中 |
+| 策略生命周期 | `BaseStrategy`、`Context` | `initialize`/`before_trading_start`/`on_bar`/`after_trading_end` 四个回调；只读 `Context` 暴露 `cash` / `positions` / `universe` / `pending_orders` / `history` / `current_price` / `total_equity`；下单意图（`order`/`order_value`/`order_target`/`order_target_value`/`order_target_percent`/`cancel_order`）；市价单且与数据可见性 / 账本严格隔离 | 已实现 |
+| 下单与撤单 | `Context.order_*()` | 首版只支持市价委托，策略只能提交意图，不能直接改账户；仅盘前与收盘回调可下单，订单创建/撤销写入事件日志 | 已实现 |
 | 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交 | 计划中 |
 | A 股基础规则 | `TradingRuleSet` | 整手、T+1、停牌/无价拒绝、现货多头和可配置成本 | 计划中 |
 | 公司行为扩展 | `CorporateActionProvider` | 先定义权威公司行为数据与会计规则；v0.1 不根据复权因子改写账本 | 计划中 |
@@ -71,7 +71,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层和日频事件时钟（任务 2–5）：空策略已可在交易日历上跑出确定的五阶段事件序列，盘前/收盘的数据可见性边界由 `DataView` 强制。完整策略上下文、撮合引擎与命令行工具仍属于后续任务（任务 6–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
+`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟和受控策略接口（任务 2–6）：空策略已可基于完整 `Context` API 在交易日历上运行并提交订单意图。撮合引擎、费用与账本估值仍属于后续任务（任务 7–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
@@ -103,7 +103,7 @@ hqbacktest/
 │   ├── __init__.py         # 版本及稳定的公开 API 导出
 │   ├── domain/             # 任务 3 的模型、状态机、精度与序列化
 │   ├── data/               # 任务 4 的数据门户、DataView、缓存与校验
-│   └── engine/             # 任务 5 的事件时钟、调度器与最小 BacktestEngine
+│   └── engine/             # 任务 5–6 的事件时钟、调度器、BacktestEngine 与受控策略接口
 ├── tests/                  # 单元测试，必须不依赖网络或本地行情文件
 ├── examples/               # 端到端示例（任务 11 才填充）
 └── docs/design/            # 设计文档（如 mvp-contract.md）
@@ -124,9 +124,11 @@ hqbacktest/
 
 ## 目标 Python 用法
 
-> 以下是任务 6 至任务 10 完成后应提供的目标 API 形态，用于固定易用性和时间语义；当前不可执行。
+> 策略与引擎部分（`BaseStrategy`、`Context`、`BacktestEngine.run()`）已实现，可在内存数据上执行；`adjustment_policy` 配置（任务 9）、`result.metrics` 与 `result.save`（任务 10）尚未提供。
 
 ```python
+from decimal import Decimal
+
 from hqbacktest import BacktestConfig, BacktestEngine, BaseStrategy
 
 
@@ -139,8 +141,8 @@ class MovingAverageStrategy(BaseStrategy):
 		if len(closes) < 20:
 			return
 
-		if closes.iloc[-5:].mean() > closes.mean():
-			context.order_target_percent("600000.SH", target=0.95)
+		if sum(closes[-5:]) / 5 > sum(closes) / 20:
+			context.order_target_percent("600000.SH", Decimal("0.95"))
 		else:
 			context.order_target("600000.SH", target_quantity=0)
 
@@ -151,7 +153,7 @@ config = BacktestConfig(
 	initial_cash="1000000",
 	data_root="~/.hqdata",
 	source="tushare",
-	adjustment_policy="none",
+	# adjustment_policy="none",  # 任务 9 加入配置校验；v0.1 唯一合法值即 none
 )
 
 result = BacktestEngine(
@@ -159,15 +161,16 @@ result = BacktestEngine(
 	strategy=MovingAverageStrategy(),
 ).run()
 
-print(result.metrics)
-result.save("results/moving-average")
+# 任务 10：绩效指标与结果导出
+# print(result.metrics)
+# result.save("results/moving-average")
 ```
 
 ### 策略回调与订单时点
 
 | 回调 | 能看到的数据 | 市价单最早成交时间 | 适合的工作 |
 | --- | --- | --- | --- |
-| `initialize(context)` | 无逐日行情 | 不可下单或按最终契约明确限制 | 设置固定参数和初始股票池 |
+| `initialize(context)` | 无逐日行情（引擎强制，读取即报错） | 不可下单（引擎强制） | 设置固定参数和初始股票池 |
 | `before_trading_start(context, data)` | 前一交易日及以前 | 当日开盘 | 根据已知历史生成开盘订单 |
 | `on_bar(context, data)` | 当日收盘后包含当天日线 | 下一交易日开盘 | 计算收盘信号并提交次日订单 |
 | `after_trading_end(context)` | 当日完成后的账户快照 | 不可下单 | 记录、检查和分析 |
