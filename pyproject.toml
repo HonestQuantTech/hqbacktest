@@ -27,7 +27,11 @@ keywords = [
 # pandas / click / pydantic will be added when subsequent tasks need them.
 dependencies = [
   "pandas>=2.0.0",
+  "tomli>=2.0",
 ]
+
+[project.scripts]
+hqbacktest = "hqbacktest.cli.__main__:main"
 
 [project.urls]
 Homepage = "https://honestquant.com/hqbacktest"

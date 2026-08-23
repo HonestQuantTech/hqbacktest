@@ -146,8 +146,14 @@ class BacktestEngine:
             )
         self._initialized = True
         portal = self.portal
+        # Strip non-reproducible runtime objects from the snapshot
+        # (`TradingRuleSet.__repr__` includes a memory address). The
+        # CLI runner also reads `summary.json`, so it must be byte-stable
+        # across runs.
+        config_snapshot = asdict(self._config)
+        config_snapshot.pop("rule_set", None)
         result = BacktestResult(
-            config_snapshot=asdict(self._config),
+            config_snapshot=config_snapshot,
             event_log=self._event_log,
             adjustment_policy=self._config.adjustment_policy,
         )
