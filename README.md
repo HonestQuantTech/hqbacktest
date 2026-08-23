@@ -7,10 +7,10 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 公司行为设计门槛完成阶段**：
+`hqbacktest` 当前处于**v0.1 结果与指标完成阶段**：
 
-- **已实现（任务 1–9 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`，其他值在配置校验时直接拒绝；`CorporateActionProvider` 为设计草案（`actions_for` + 10 个权威字段），因子诊断接口 `FactorDiagnostic` / `FactorDiagnosticCollector` 与分析器 `analyze_factor_series` 已就位（缺失、零/负、异常跳变、跨源不一致四类诊断均可生成且不动账本），引擎默认不自动启用。`BacktestResult.adjustment_policy` 与 `factor_diagnostics` 字段已就位。结果指标、CLI、CI 仍属后续任务。
-- **计划中（任务 10–13）：** 结果对象（净值、订单、成交、持仓、费用、绩效指标）、CLI、CI 与发布。
+- **已实现（任务 1–10 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`，其他值在配置校验时直接拒绝；`CorporateActionProvider` 为设计草案（`actions_for` + 10 个权威字段），因子诊断接口 `FactorDiagnostic` / `FactorDiagnosticCollector` 与分析器 `analyze_factor_series` 已就位（缺失、零/负、异常跳变、跨源不一致四类诊断均可生成且不动账本），引擎默认不自动启用。`BacktestResult` 现含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` 与 `PerformanceMetrics`（累计收益 / 年化 / 波动率 / 夏普 / 最大回撤 / 换手率 / 交易次数 / 胜率 / 边界 notes）；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。结果输出与文件格式控制（CLI、CI）仍属后续任务。
+- **计划中（任务 11–13）：** 端到端示例、CLI、CI 与发布。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -41,7 +41,7 @@
 | 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交；回测结束时未成交订单以 `BACKTEST_ENDED` 撤销 | 已实现 |
 | A 股基础规则 | `TradingRuleSet`、`CostModel` | 买入整手（卖出允许零股）、T+1、停牌/无价拒绝、现货多头与显式 A 股费率（佣金 0.025% + 5 元保底；卖出印花税 0.1%）；所有费率在配置与 README 中显式声明 | 已实现 |
 | 公司行为扩展 | `CorporateActionProvider`、`AdjustmentPolicy`、`analyze_factor_series` | v0.1 仅 `adjustment_policy="none"`；`CorporateActionProvider` 为设计草案（10 个权威字段）；`factor_total_return` 准入标准（7 项会计语义）已条目化；因子诊断分析器可对缺失/零负/异常跳变/跨源不一致生成可追溯诊断，引擎默认不自动启用；任何其他 `adjustment_policy` 在配置校验时拒绝 | 部分实现 |
-| 结果与分析 | `BacktestResult` | 净值、订单、成交、持仓、成本及基础绩效指标 | 计划中 |
+| 结果与分析 | `BacktestResult`、`PerformanceMetrics` | 净值曲线、订单/成交/持仓/费用 CSV + `summary.json` + `events.jsonl`；累计收益 / 年化 / 日与年化波动率 / 夏普 / 最大回撤 / 换手率 / 交易次数 / 胜率 / 边界 notes；持仓无价即运行失败（`DATA_ERROR`)；公式在 `engine/metrics.py` 注释中显式 | 已实现 |
 | 配置与命令行 | `hqbacktest run` | 通过配置文件执行，并保存可复现的运行目录 | 计划中 |
 
 ## 首个可用版本的范围
@@ -71,7 +71,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、以及公司行为扩展的设计门槛（任务 2–9）：买入并持有策略可在假数据上产出确定的现金、持仓、成交与费用明细，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略与因子诊断字段。结果指标、命令行的后续任务（任务 10–12）按 [`TODO.md`](TODO.md) 顺序陆续落地。
+`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、公司行为扩展的设计门槛，以及可审计的结果对象与绩效指标（任务 2–10）：买入并持有策略可在假数据上产出确定的现金、持仓、成交、费用明细与净值曲线，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略、因子诊断、五个 CSV 表与 `PerformanceMetrics`，`save(dir)` / `load(dir)` 可重建。端到端示例、命令行的后续任务（任务 11–12）按 [`TODO.md`](TODO.md) 顺序陆续落地。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
@@ -210,17 +210,34 @@ results/moving-average/
 └── positions.csv            # 每日持仓和估值
 ```
 
-## 计划输出与指标
+## 输出与指标
 
-| 产物 | 内容 |
+`BacktestResult.save(dir)` 写出以下文件（任务10实现，公式在 `src/hqbacktest/engine/metrics.py` 顶部注释中显式）：
+
+| 文件 | 内容 |
 | --- | --- |
-| `equity_curve` | 日期、现金、持仓市值、总资产、日收益和回撤 |
-| `orders` | 委托方向、数量、创建时间、状态、拒绝原因和关联策略事件 |
-| `fills` | 成交日期、价格、数量、金额、费用和关联订单 |
-| `positions` | 每日总持仓、可卖数量、均价和市值；v0.1 不写因子调整记录 |
-| `metrics` | 累计收益、年化收益、波动率、夏普比率、最大回撤、换手率、交易次数和胜率 |
+| `equity_curve.csv` | 日期、现金、持仓市值、总资产、日收益、回撤 |
+| `orders.csv` | 委托方向、数量、订单类型、状态、关联成交与拒绝原因 |
+| `fills.csv` | 成交日期、价格、数量、金额、佣金、印花税、关联订单 |
+| `positions.csv` | 每日每持仓标的的余额、可卖量、均价、当日收盘价、市值 |
+| `costs.csv` | 每次成交的费用拆分（佣金、印花税、过户费、净额） |
+| `events.jsonl` | 完整事件日志（每行一个 JSON 事件，含订单/成交 ID 与错误原因） |
+| `summary.json` | 配置快照、交易日、调整策略、数据来源（`data_version`）、因子诊断、指标 |
 
-所有指标会在实现时记录公式、年化交易日数、风险自由利率和异常边界。指标不构成投资建议，也不应被解释为未来收益承诺。
+指标公式（手算见 `tests/engine/test_metrics.py`）：
+
+- 累计收益 `(final_equity / initial_cash) - 1`
+- 日收益 `equity[t] / equity[t-1] - 1`
+- 年化收益 `(1 + total_return) ** (N / annual_trading_days) - 1`，N < 2 时为 `None`
+- 日波动率 `stdev(daily_returns)`（样本标准差，ddof=1），单日时为 `None`
+- 年化波动率 `daily_volatility * sqrt(annual_trading_days)`
+- 夏普比率 `(annualized_return - risk_free_rate) / annualized_volatility`，零波动时为 `None`
+- 最大回撤 `max(peak - current) / peak`（从净值曲线取）
+- 换手率 `(sum(BUY 成交额) + sum(SELL 成交额)) / 2 / initial_cash`（单边均值）
+- 交易次数 `len(fills)`
+- 胜率 `SELL 且 fill.price > 当时平均成本` / `SELL 总数`（按时间顺序单遍重放），无 SELL 时为 `None`
+
+`risk_free_rate`（年化）与 `annual_trading_days`（默认 252）走 `MetricsConfig`，可追溯到配置；零分母与样本不足会在 `notes` 字段里显式说明。持仓标的在某日无有效收盘价时运行失败并记录 `DATA_ERROR` 事件（契约 §4：不使用前收、插值或静默按零估值）。指标不构成投资建议，也不应被解释为未来收益承诺。
 
 ## 测试与开发
 

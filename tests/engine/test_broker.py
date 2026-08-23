@@ -306,7 +306,7 @@ def test_engine_cancels_leftover_orders_with_backtest_ended():
     assert len(cancellations) == 1
     assert cancellations[0].order_id == order.order_id
     assert cancellations[0].date == "20240103"
-    assert "BACKTEST_ENDED" in cancellations[0].detail
+    assert cancellations[0].error == "BACKTEST_ENDED"
 
 
 def test_engine_fill_links_order_and_fill_ids():

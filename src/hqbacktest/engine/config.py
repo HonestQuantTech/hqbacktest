@@ -15,6 +15,7 @@ from ..data.validators import validate_yyyymmdd
 from .corporate_actions import V01_ADJUSTMENT_POLICY
 from .cost_model import CostModel, DefaultCostModel
 from .errors import ConfigurationError
+from .metrics import MetricsConfig
 from .rule_set import DEFAULT_V01_RULES, TradingRuleSet
 
 # Re-exported for convenience; the single definition lives in
@@ -53,6 +54,7 @@ class BacktestConfig:
     )
     cost_model: CostModel = field(default_factory=lambda: DefaultCostModel())
     adjustment_policy: str = V01_ADJUSTMENT_POLICY
+    metrics: MetricsConfig = field(default_factory=MetricsConfig)
 
     def __post_init__(self) -> None:
         try:
@@ -83,6 +85,8 @@ class BacktestConfig:
             raise ConfigurationError("rule_set must be a TradingRuleSet instance")
         if not isinstance(self.cost_model, CostModel):
             raise ConfigurationError("cost_model must satisfy the CostModel protocol")
+        if not isinstance(self.metrics, MetricsConfig):
+            raise ConfigurationError("metrics must be a MetricsConfig instance")
         # Adjustment policy: v0.1 only accepts "none". Any other value is
         # rejected with an explicit reason (TODO task 9 verification:
         # "配置只接受 AdjustmentPolicy=none, 其他值均带明确原因拒绝").

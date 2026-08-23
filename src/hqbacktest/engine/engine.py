@@ -1,6 +1,6 @@
 """BacktestEngine: event clock plus controlled strategy context.
 
-Responsibilities after task 9:
+Responsibilities after task 10:
     - Build a `MarketDataPortal` from `BacktestConfig` (default: CSV portal).
     - Iterate the trading days returned by the portal (no natural-day loop).
     - Dispatch the five phases per day in contract §4 order.
@@ -12,24 +12,27 @@ Responsibilities after task 9:
     - After the last trading day, cancel still-pending orders with reason
       `BACKTEST_ENDED` (contract §4); the run is never extended to fill them.
     - Record the active adjustment policy and the factor-diagnostics
-      collector in the result (task 9). v0.1 only supports "none" so the
-      policy marker is informational; factor diagnostics are dormant.
+      collector in the result.
+    - Build the per-day `equity_curve` from close prices and snapshot
+      positions / costs / orders / fills into typed tables on the result.
+    - Compute `PerformanceMetrics` from the equity curve and fills.
     - Maintain a single `EventLog` covering the whole run.
-    - Build a `BacktestResult` with the configuration snapshot, the log,
-      the trading days, the policy, and the diagnostics.
 
-Out of scope (deferred to task 10):
-    - Performance metrics, snapshots, persistence.
+Out of scope (deferred to task 12+):
+    - Interactive / HTML reports.
 """
 
 from dataclasses import asdict
-from typing import List, Optional
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
 from ..data.data_view import DataView
+from ..data.errors import MissingDataError
 from ..data.hqdata_portal import HqDataCsvPortal, resolve_source_location
 from ..data.portal import MarketDataPortal
 from ..domain.enums import EventType, OrderStatus, RejectReason
 from ..domain.errors import InsufficientCashError, InsufficientSharesError
+from ..domain.fill import Fill
 from ..domain.order import Order
 from ..domain.portfolio import Portfolio
 from .broker import SimulatedBroker
@@ -47,6 +50,7 @@ from .errors import (
 )
 from .events import EngineEvent, EventLog
 from .iterator import TradingDayIterator
+from .metrics import EquityPoint, compute_metrics
 from .result import BacktestResult
 from .scheduler import run_day
 from .strategy import NullStrategy, Strategy
@@ -77,6 +81,15 @@ class BacktestEngine:
         self._event_log = EventLog()
         self._portfolio = Portfolio(initial_cash=config.initial_cash)
         self._factor_diagnostics = FactorDiagnosticCollector()
+        self._fills: List[Fill] = []
+        self._equity_curve: List[EquityPoint] = []
+        # Every order the engine has consumed (insertion-ordered), so the
+        # orders table is built from real Order objects — never scraped
+        # from event-log strings.
+        self._orders: Dict[str, Order] = {}
+        # Per-day per-symbol position rows, snapshotted at day end with
+        # that day's close price.
+        self._positions_rows: List[Dict[str, Any]] = []
         self._initialized = False
         self._result: Optional[BacktestResult] = None
 
@@ -159,11 +172,30 @@ class BacktestEngine:
             self._cancel_leftover_orders(context, result.trading_days)
         finally:
             context._mark_run_finished()
-        result.factor_diagnostics = list(self._factor_diagnostics.all())
+        # Build the result tables only after the day loop completed
+        # successfully. If any day raised `RunFailed` we re-raised above, so
+        # this code path is reached only on a clean run.
+        self._populate_result(result)
         # Only publish the result after a fully successful run: a failed run
         # must not leave a half-populated BacktestResult on the engine.
         self._result = result
         return result
+
+    def _populate_result(self, result: "BacktestResult") -> None:
+        """Fill in equity_curve, orders/fills/positions/costs tables, metrics."""
+        result.equity_curve = list(self._equity_curve)
+        result.fills_table = [self._fill_row(f) for f in self._fills]
+        result.costs_table = [self._cost_row(f) for f in self._fills]
+        result.orders_table = [self._order_row(o) for o in self._orders.values()]
+        result.positions_table = list(self._positions_rows)
+        result.data_version = asdict(self.portal.data_version())
+        result.metrics = compute_metrics(
+            equity_curve=result.equity_curve,
+            fills=self._fills,
+            initial_cash=self._config.initial_cash,
+            config=self._config.metrics,
+        )
+        result.factor_diagnostics = list(self._factor_diagnostics.all())
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -220,6 +252,7 @@ class BacktestEngine:
             )
             # End-of-day settlement: roll today's buys into sellable (T+1).
             self._portfolio.settle_t1(today=today, previous_date=None)
+            self._snapshot_equity(today, portal)
         except RunFailed:
             raise
         except Exception as exc:
@@ -242,6 +275,157 @@ class BacktestEngine:
             )
             raise RunFailed(today, phase_name, exc) from exc
 
+    def _fill_row(self, fill: Fill) -> Dict[str, Any]:
+        return {
+            "fill_id": fill.fill_id,
+            "order_id": fill.order_id,
+            "symbol": fill.symbol,
+            "side": fill.side.name,
+            "quantity": str(fill.quantity),
+            "price": str(fill.price),
+            "amount": str(fill.amount),
+            "commission": str(fill.commission),
+            "stamp_tax": str(fill.stamp_tax),
+            "other_fee": str(fill.other_fee),
+            "filled_at": fill.filled_at,
+            "session": fill.session.name,
+        }
+
+    def _cost_row(self, fill: Fill) -> Dict[str, Any]:
+        return {
+            "date": fill.filled_at,
+            "fill_id": fill.fill_id,
+            "order_id": fill.order_id,
+            "symbol": fill.symbol,
+            "side": fill.side.name,
+            "quantity": str(fill.quantity),
+            "gross": str(abs(fill.amount)),
+            "commission": str(fill.commission),
+            "stamp_tax": str(fill.stamp_tax),
+            "other_fee": str(fill.other_fee),
+            "net": str(fill.net_amount()),
+        }
+
+    def _order_row(self, order: Order) -> Dict[str, Any]:
+        """One orders-table row, built from the real Order object."""
+        fills = [f for f in self._fills if f.order_id == order.order_id]
+        commission_total = sum((f.commission for f in fills), Decimal("0"))
+        return {
+            "order_id": order.order_id,
+            "symbol": order.symbol,
+            "side": order.side.name,
+            "quantity": str(order.quantity),
+            "order_type": order.order_type.name,
+            "status": order.status.name,
+            "created_at": order.created_at,
+            "created_session": order.created_session.name,
+            "filled_at": order.filled_at or "",
+            "avg_fill_price": (
+                str(order.avg_fill_price) if order.avg_fill_price is not None else ""
+            ),
+            "commission_total": str(commission_total) if fills else "",
+            "reject_reason": (
+                order.reject_reason.name if order.reject_reason is not None else ""
+            ),
+            "reject_detail": order.reject_detail or "",
+        }
+
+    def _snapshot_equity(self, today: str, portal: MarketDataPortal) -> None:
+        """Record one EquityPoint using today's close for market value.
+
+        Contract §4: day-end valuation uses D's valid unadjusted close. If a
+        HELD symbol has no valid close (missing bar, or close <= 0), the run
+        FAILS with a DATA_ERROR event — v0.1 never silently skips valuation,
+        never uses previous closes, and never values holdings at zero.
+        """
+        prices: Dict[str, Decimal] = {}
+        for symbol, position in self._portfolio.positions.items():
+            if position.quantity == 0:
+                continue
+            close = self._close_price_or_none(portal, symbol, today)
+            if close is None:
+                self._event_log.record(
+                    EngineEvent(
+                        date=today,
+                        phase=EventType.DATA_ERROR,
+                        error="MissingDataError",
+                        detail=(
+                            f"no valid close for held symbol {symbol} on "
+                            f"{today}; valuation aborted"
+                        ),
+                    )
+                )
+                raise RunFailed(
+                    today,
+                    "AFTER_TRADING_END",
+                    MissingDataError(
+                        "close", f"no valid close for held symbol {symbol} on {today}"
+                    ),
+                )
+            prices[symbol] = close
+        market_value = self._portfolio.market_value(prices)
+        total_equity = self._portfolio.cash + market_value
+        prev_total = self._equity_curve[-1].total_equity if self._equity_curve else None
+        if prev_total is None or prev_total == 0:
+            daily_return = Decimal("0")
+        else:
+            daily_return = total_equity / prev_total - Decimal("1")
+        if self._equity_curve:
+            peak = max(pt.total_equity for pt in self._equity_curve)
+            drawdown = (
+                max(Decimal("0"), (peak - total_equity) / peak)
+                if peak > 0
+                else Decimal("0")
+            )
+        else:
+            drawdown = Decimal("0")
+        self._equity_curve.append(
+            EquityPoint(
+                date=today,
+                cash=self._portfolio.cash,
+                market_value=market_value,
+                total_equity=total_equity,
+                daily_return=daily_return,
+                drawdown=drawdown,
+            )
+        )
+        # Per-day position snapshot with today's actual close prices.
+        for symbol, position in self._portfolio.positions.items():
+            if position.quantity == 0:
+                continue
+            price = prices[symbol]
+            self._positions_rows.append(
+                {
+                    "date": today,
+                    "symbol": symbol,
+                    "quantity": str(position.quantity),
+                    "sellable_quantity": str(position.sellable_quantity),
+                    "avg_cost": str(position.avg_cost),
+                    "market_price": str(price),
+                    "market_value": str(position.market_value(price)),
+                }
+            )
+
+    @staticmethod
+    def _close_price_or_none(
+        portal: MarketDataPortal, symbol: str, today: str
+    ) -> Optional[Decimal]:
+        """Today's close for `symbol`, or None when missing/invalid.
+
+        Only `MissingDataError` maps to None; corrupt data or I/O errors
+        propagate and abort the run via the caller's RunFailed wrapping.
+        """
+        try:
+            bars = portal.get_bars(symbol, today, today)
+        except MissingDataError:
+            return None
+        if not bars:
+            return None
+        close = bars[0].close
+        if close is None or close <= 0:
+            return None
+        return close
+
     def _sellable_for(self, symbol: str) -> int:
         pos = self._portfolio.positions.get(symbol)
         return pos.sellable_quantity if pos else 0
@@ -257,6 +441,8 @@ class BacktestEngine:
         become rejections; any other ledger error is a programming bug and
         aborts the run via `RunFailed`.
         """
+        for order in pending:
+            self._orders[order.order_id] = order
         results = self._broker.match(
             pending,
             self.portal,
@@ -289,6 +475,7 @@ class BacktestEngine:
             # Fill applied: record on the order (keeps fill_ids,
             # filled_quantity and avg_fill_price in sync).
             order.record_fill(fill.fill_id, fill.quantity, fill.price, at=today)
+            self._fills.append(fill)
             self._event_log.record(
                 EngineEvent(
                     date=today,
@@ -336,6 +523,7 @@ class BacktestEngine:
             return
         at = trading_days[-1] if trading_days else self._config.end_date
         for order in leftover:
+            self._orders[order.order_id] = order
             order.transition(
                 OrderStatus.CANCELLED,
                 at=at,
@@ -347,7 +535,8 @@ class BacktestEngine:
                     date=at,
                     phase=EventType.ORDER_CANCELLED,
                     order_id=order.order_id,
-                    detail="BACKTEST_ENDED: no OPEN_MATCH left in the backtest window",
+                    error=RejectReason.BACKTEST_ENDED.name,
+                    detail="no OPEN_MATCH left in the backtest window",
                 )
             )
 

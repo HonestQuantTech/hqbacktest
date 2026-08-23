@@ -42,6 +42,7 @@ from .intents import (
     target_value_for_percent,
 )
 from .iterator import TradingDayIterator
+from .metrics import EquityPoint, MetricsConfig, PerformanceMetrics, compute_metrics
 from .result import BacktestResult
 from .rule_set import (
     DEFAULT_V01_RULES,
@@ -67,6 +68,7 @@ from .strategy import BaseStrategy, NullStrategy, Strategy
 
 __all__ = [
     "DEFAULT_V01_RULES",
+    "MetricsConfig",
     "PHASE_SCHEDULE",
     "REQUIRED_CORPORATE_ACTION_FIELDS",
     "V01_ADJUSTMENT_POLICY",
@@ -86,8 +88,8 @@ __all__ = [
     "DoubleInitializationError",
     "EngineError",
     "EngineEvent",
+    "EquityPoint",
     "EventLog",
-    "FACTOR_TOTAL_RETURN_ADMISSION_CRITERIA",
     "FactorDiagnostic",
     "FactorDiagnosticCollector",
     "DIAGNOSTIC_KINDS",
@@ -99,6 +101,7 @@ __all__ = [
     "NonTradingDayRule",
     "NotInitializedError",
     "NullStrategy",
+    "PerformanceMetrics",
     "PhaseSchedule",
     "Rule",
     "RuleCheckContext",
@@ -113,6 +116,7 @@ __all__ = [
     "TradingRuleSet",
     "UnsupportedOrderTypeError",
     "build_view",
+    "compute_metrics",
     "normalize_percent",
     "previous_trading_day",
     "quantity_from_value",
