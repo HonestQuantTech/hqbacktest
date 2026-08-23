@@ -52,6 +52,7 @@ include = ["hqbacktest*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
   "integration: marks tests as integration tests against real hqdata sources (skipped by default)",
 ]

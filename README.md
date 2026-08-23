@@ -7,10 +7,10 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 结果与指标完成阶段**：
+`hqbacktest` 当前处于**v0.1 端到端示例完成阶段**：
 
-- **已实现（任务 1–10 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`，其他值在配置校验时直接拒绝；`CorporateActionProvider` 为设计草案（`actions_for` + 10 个权威字段），因子诊断接口 `FactorDiagnostic` / `FactorDiagnosticCollector` 与分析器 `analyze_factor_series` 已就位（缺失、零/负、异常跳变、跨源不一致四类诊断均可生成且不动账本），引擎默认不自动启用。`BacktestResult` 现含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` 与 `PerformanceMetrics`（累计收益 / 年化 / 波动率 / 夏普 / 最大回撤 / 换手率 / 交易次数 / 胜率 / 边界 notes）；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。结果输出与文件格式控制（CLI、CI）仍属后续任务。
-- **计划中（任务 11–13）：** 端到端示例、CLI、CI 与发布。
+- **已实现（任务 1–11 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 为设计草案，因子诊断接口与 `analyze_factor_series` 分析器已就位。`BacktestResult` 含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` / `PerformanceMetrics` / `events.jsonl` / `data_version` / `factor_diagnostics`；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。`examples/buy_and_hold.py` 与 `examples/moving_average.py` 用公共 API 跑通端到端流程并有 7 天确定性 `InMemoryDataPortal` 数据 fixture，10 项端到端回归测试覆盖完整生命周期。命令行与 CI 仍属后续任务。
+- **计划中（任务 12–13）：** CLI、CI 与发布。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -41,6 +41,7 @@
 | 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交；回测结束时未成交订单以 `BACKTEST_ENDED` 撤销 | 已实现 |
 | A 股基础规则 | `TradingRuleSet`、`CostModel` | 买入整手（卖出允许零股）、T+1、停牌/无价拒绝、现货多头与显式 A 股费率（佣金 0.025% + 5 元保底；卖出印花税 0.1%）；所有费率在配置与 README 中显式声明 | 已实现 |
 | 公司行为扩展 | `CorporateActionProvider`、`AdjustmentPolicy`、`analyze_factor_series` | v0.1 仅 `adjustment_policy="none"`；`CorporateActionProvider` 为设计草案（10 个权威字段）；`factor_total_return` 准入标准（7 项会计语义）已条目化；因子诊断分析器可对缺失/零负/异常跳变/跨源不一致生成可追溯诊断，引擎默认不自动启用；任何其他 `adjustment_policy` 在配置校验时拒绝 | 部分实现 |
+| 端到端示例 | `examples/buy_and_hold.py`、`examples/moving_average.py` | 仅用公共 `BaseStrategy` + `Context` API；7 天 `InMemoryDataPortal` 确定性数据；10 项端到端回归测试覆盖买入、下单、次日成交、T+1、费用、净值与指标导出 | 已实现 |
 | 结果与分析 | `BacktestResult`、`PerformanceMetrics` | 净值曲线、订单/成交/持仓/费用 CSV + `summary.json` + `events.jsonl`；累计收益 / 年化 / 日与年化波动率 / 夏普 / 最大回撤 / 换手率 / 交易次数 / 胜率 / 边界 notes；持仓无价即运行失败（`DATA_ERROR`)；公式在 `engine/metrics.py` 注释中显式 | 已实现 |
 | 配置与命令行 | `hqbacktest run` | 通过配置文件执行，并保存可复现的运行目录 | 计划中 |
 
@@ -71,7 +72,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、公司行为扩展的设计门槛，以及可审计的结果对象与绩效指标（任务 2–10）：买入并持有策略可在假数据上产出确定的现金、持仓、成交、费用明细与净值曲线，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略、因子诊断、五个 CSV 表与 `PerformanceMetrics`，`save(dir)` / `load(dir)` 可重建。端到端示例、命令行的后续任务（任务 11–12）按 [`TODO.md`](TODO.md) 顺序陆续落地。
+`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、公司行为扩展的设计门槛、可审计的结果对象与绩效指标，以及端到端示例与回归基准（任务 2–11）：买入并持有与均线策略在 7 天 `InMemoryDataPortal` 上产出确定的现金、持仓、成交、费用明细与净值曲线，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略、因子诊断、五个 CSV 表与 `PerformanceMetrics`，`save(dir)` / `load(dir)` 可重建。命令行与 CI 的后续任务（任务 12–13）按 [`TODO.md`](TODO.md) 顺序陆续落地。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
@@ -105,7 +106,7 @@ hqbacktest/
 │   ├── data/               # 任务 4 的数据门户、DataView、缓存与校验
 │   └── engine/             # 任务 5–6 的事件时钟、调度器、BacktestEngine 与受控策略接口
 ├── tests/                  # 单元测试，必须不依赖网络或本地行情文件
-├── examples/               # 端到端示例（任务 11 才填充）
+├── examples/               # 端到端示例（任务 11：buy_and_hold / moving_average）
 └── docs/design/            # 设计文档（如 mvp-contract.md）
 ```
 
@@ -239,6 +240,31 @@ results/moving-average/
 
 `risk_free_rate`（年化）与 `annual_trading_days`（默认 252）走 `MetricsConfig`，可追溯到配置；零分母与样本不足会在 `notes` 字段里显式说明。持仓标的在某日无有效收盘价时运行失败并记录 `DATA_ERROR` 事件（契约 §4：不使用前收、插值或静默按零估值）。指标不构成投资建议，也不应被解释为未来收益承诺。
 
+## 示例
+
+端到端示例用 7 天确定性 `InMemoryDataPortal` 数据展示完整的下单-撮合-导出流程，不访问网络、不需要任何凭证：
+
+```bash
+python examples/buy_and_hold.py
+python examples/moving_average.py
+```
+
+两份示例都只使用公开 `BaseStrategy` + `Context` API（`set_universe` / `order` / `order_target` / `order_target_percent` / `history` / `current_price`），从不接触引擎或账本的私有字段。`tests/examples/` 下有 10 项端到端回归测试，锁定了：
+
+- 买-持策略的最终现金、持仓、净值与总收益（手算）
+- 均线策略的完整往返：买入、次日开盘成交、T+1 卖出、末交易日订单撤销（`BACKTEST_ENDED`）
+- `result.save(dir)` + `BacktestResult.load(dir)` 的 CSV/JSON 往返
+- 均线策略对公共 API 的隔离（不允许触碰 `_portfolio` / `_event_log` 等内部字段）
+
+如果要切换到真实 CSV 数据源，编辑 `examples/buy_and_hold.py` 里 `_build_portal_inline()`：
+
+```python
+from hqbacktest import HqDataCsvPortal
+portal = HqDataCsvPortal(source="tushare", data_root="~/.hqdata")
+```
+
+`source` 可以是名称（如 `"tushare"`）或绝对路径（如 `"/home/<user>/.hqdata/tushare"`），底层 CSV 布局由 hqdata CLI 在回测前写入；hqbacktest 不会下载数据。
+
 ## 测试与开发
 
 项目的验证入口为：
@@ -247,7 +273,7 @@ results/moving-average/
 pytest tests/ -v
 ```
 
-单元测试必须使用内存数据或 mock，不依赖网络和本地行情文件。确需在真实数据上验证 Tushare 或 RiceQuant 适配的集成测试必须在 `~/.hqdata/{name}` 目录不存在或不可读时自动跳过。每一项公开 API、订单规则、时间语义和绩效公式都应有可手算的回归测试。
+`tests/examples/` 中的端到端测试会再次 `python examples/*.py` 作为子进程，确认示例在干净环境下也能跑。单元测试必须使用内存数据或 mock，不依赖网络和本地行情文件。确需在真实数据上验证 Tushare 或 RiceQuant 适配的集成测试必须在 `~/.hqdata/{name}` 目录不存在或不可读时自动跳过。每一项公开 API、订单规则、时间语义和绩效公式都应有可手算的回归测试。
 
 ## 实施顺序
 
