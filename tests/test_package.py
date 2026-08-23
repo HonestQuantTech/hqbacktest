@@ -21,23 +21,30 @@ def test_version_is_non_empty_string():
 
 
 def test_public_api_includes_domain_models():
-    """After task 4, the package re-exports the domain + data models."""
+    """After task 5, the package re-exports domain, data and engine layers."""
     import hqbacktest
 
     expected = {
         "__version__",
         "AccountSnapshot",
+        "BacktestConfig",
+        "BacktestEngine",
+        "BacktestResult",
         "Bar",
         "CacheKey",
+        "Context",
         "CorporateActionAdjustment",
         "DataCache",
         "DataVersion",
         "DataView",
+        "EngineEvent",
+        "EventLog",
         "EventType",
         "Fill",
         "HqDataCsvPortal",
         "InMemoryDataPortal",
         "MarketDataPortal",
+        "NullStrategy",
         "Order",
         "OrderStatus",
         "OrderType",
@@ -47,6 +54,8 @@ def test_public_api_includes_domain_models():
         "PriceMode",
         "RejectReason",
         "Side",
+        "Strategy",
+        "TradingDayIterator",
         "resolve_source_location",
     }
     assert set(hqbacktest.__all__) == expected

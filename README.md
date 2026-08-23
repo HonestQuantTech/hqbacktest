@@ -7,10 +7,10 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 数据层完成阶段**：
+`hqbacktest` 当前处于**v0.1 引擎骨架完成阶段**：
 
-- **已实现（任务 1–4 完成）：** 产品契约、可安装的 Python 包、领域模型、订单状态机、`Decimal` 精度与 JSON 序列化；以及 `MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验。
-- **计划中（任务 5–13）：** 策略生命周期、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
+- **已实现（任务 1–5 完成）：** 产品契约、可安装的 Python 包、领域模型、订单状态机、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；以及日频事件时钟、最小 `BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志。订单撮合、费用与账本估值尚未接入。
+- **计划中（任务 6–13）：** 完整策略生命周期与受控交易上下文、虚拟经纪商、A 股基础规则、AdjustmentPolicy（仅 `none`）、结果与指标、CLI、CI 与发布。
 
 本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
 
@@ -35,7 +35,8 @@
 | --- | --- | --- | :---: |
 | 交易日与历史股票池 | `MarketDataPortal` | 按回测日获取交易日和股票池，避免以今日股票列表产生幸存者偏差 | 已实现 |
 | 日线数据可见性 | `DataView.history()` | 盘前最多看到前一交易日；当天收盘后才可读取当天日线 | 已实现 |
-| 策略生命周期 | `BaseStrategy` | `initialize`、盘前、收盘、日终四个回调 | 计划中 |
+| 日频事件时钟 | `BacktestEngine`、`EventLog` | 五阶段固定顺序；盘前 D-1、收盘 D 的可见性切换；事件日志记录日期、阶段与错误原因；策略异常带日期和阶段 | 已实现 |
+| 策略生命周期 | `BaseStrategy` | `initialize`、盘前、收盘、日终四个回调（当前引擎只调用最小协议形态，完整受控 API 在任务 6 落地） | 部分实现 |
 | 下单与撤单 | `Context.order_*()` | 首版只支持市价委托，策略只能提交意图，不能直接改账户 | 计划中 |
 | 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交 | 计划中 |
 | A 股基础规则 | `TradingRuleSet` | 整手、T+1、停牌/无价拒绝、现货多头和可配置成本 | 计划中 |
@@ -70,7 +71,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已完成可安装包和领域模型（任务 2–3）。受限数据层正在按 CSV 数据边界重构（任务 4）；策略生命周期、撮合引擎与命令行工具仍属于后续任务（任务 5–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
+`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层和日频事件时钟（任务 2–5）：空策略已可在交易日历上跑出确定的五阶段事件序列，盘前/收盘的数据可见性边界由 `DataView` 强制。完整策略上下文、撮合引擎与命令行工具仍属于后续任务（任务 6–12），按 [`TODO.md`](TODO.md) 顺序陆续落地。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
@@ -99,8 +100,10 @@ pip install -e ".[dev]"
 hqbacktest/
 ├── pyproject.toml          # 构建、依赖、pytest 与 black 配置
 ├── src/hqbacktest/         # 引擎源码（src 布局）
-│   ├── __init__.py         # 版本及稳定的领域模型导出
-│   └── domain/             # 任务 3 的模型、状态机、精度与序列化
+│   ├── __init__.py         # 版本及稳定的公开 API 导出
+│   ├── domain/             # 任务 3 的模型、状态机、精度与序列化
+│   ├── data/               # 任务 4 的数据门户、DataView、缓存与校验
+│   └── engine/             # 任务 5 的事件时钟、调度器与最小 BacktestEngine
 ├── tests/                  # 单元测试，必须不依赖网络或本地行情文件
 ├── examples/               # 端到端示例（任务 11 才填充）
 └── docs/design/            # 设计文档（如 mvp-contract.md）

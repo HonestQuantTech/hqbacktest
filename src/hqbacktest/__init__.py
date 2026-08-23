@@ -26,23 +26,41 @@ from hqbacktest.domain import (
     RejectReason,
     Side,
 )
+from hqbacktest.engine import (
+    BacktestConfig,
+    BacktestEngine,
+    BacktestResult,
+    Context,
+    EngineEvent,
+    EventLog,
+    NullStrategy,
+    Strategy,
+    TradingDayIterator,
+)
 
 __version__ = "0.1.0"
 
 __all__ = [
     "__version__",
     "AccountSnapshot",
+    "BacktestConfig",
+    "BacktestEngine",
+    "BacktestResult",
     "Bar",
     "CacheKey",
+    "Context",
     "CorporateActionAdjustment",
     "DataCache",
     "DataVersion",
     "DataView",
+    "EngineEvent",
+    "EventLog",
     "EventType",
     "Fill",
     "HqDataCsvPortal",
     "InMemoryDataPortal",
     "MarketDataPortal",
+    "NullStrategy",
     "Order",
     "OrderStatus",
     "OrderType",
@@ -52,5 +70,7 @@ __all__ = [
     "PriceMode",
     "RejectReason",
     "Side",
+    "Strategy",
+    "TradingDayIterator",
     "resolve_source_location",
 ]
