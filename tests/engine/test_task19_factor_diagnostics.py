@@ -345,19 +345,24 @@ def test_cli_runner_prints_summary_when_diagnostics_present(tmp_path):
     original = runner._resolve_portal
     runner._resolve_portal = lambda source, data_root: portal
     sys.path.insert(0, str(tmp_path))
+    sys.modules.pop("strategy", None)  # avoid stale cache across tests
     cfg_file_obj = load_config_file(str(config_file))
     buf = StringIO()
     old_stdout = sys.stdout
     sys.stdout = buf
     try:
-        run_from_config(cfg_file_obj, source_path=str(config_file))
+        run_result = run_from_config(cfg_file_obj, source_path=str(config_file))
     finally:
         sys.stdout = old_stdout
         sys.path.remove(str(tmp_path))
+        sys.modules.pop("strategy", None)
         runner._resolve_portal = original
     output = buf.getvalue()
     assert (
         "factor" in output.lower()
         or "diagnostic" in output.lower()
         or "warning" in output.lower()
-    ), f"expected a factor/diagnostic warning in stdout; got: {output!r}"
+    ), (
+        f"expected a factor/diagnostic warning in stdout; got: {output!r}; "
+        f"exit_code={run_result.exit_code}, message={run_result.message}"
+    )

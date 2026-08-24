@@ -318,7 +318,12 @@ def test_engine_event_log_preserves_chronological_order():
     assert list(by_date.keys()) == sorted(by_date.keys())
 
 
-def test_engine_emits_zero_events_for_empty_calendar():
+def test_engine_rejects_empty_calendar_window():
+    """Task 20: an empty trading-day window must raise rather than
+    silently produce an empty result.
+    """
+    from hqbacktest.engine.errors import ConfigurationError
+
     p = InMemoryDataPortal(calendar=[])
     cfg = BacktestConfig(
         start_date="20240102",
@@ -326,9 +331,8 @@ def test_engine_emits_zero_events_for_empty_calendar():
         initial_cash=Decimal("100000"),
         source="tushare",
     )
-    result = BacktestEngine(cfg, portal=p).run()
-    assert result.trading_days == []
-    assert len(result.event_log) == 0
+    with pytest.raises(ConfigurationError, match="no trading days"):
+        BacktestEngine(cfg, portal=p).run()
 
 
 def test_engine_rejects_invalid_config():

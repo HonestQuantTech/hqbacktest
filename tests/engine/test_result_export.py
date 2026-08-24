@@ -89,7 +89,12 @@ def test_engine_builds_equity_curve_for_three_days():
         assert isinstance(pt.drawdown, Decimal)
 
 
-def test_engine_empty_calendar_yields_empty_equity_curve():
+def test_engine_empty_calendar_raises():
+    """Task 20: an empty trading-day window must raise rather than
+    silently produce an empty result.
+    """
+    from hqbacktest.engine.errors import ConfigurationError
+
     class Null(BaseStrategy):
         def initialize(self, context):
             pass
@@ -99,8 +104,8 @@ def test_engine_empty_calendar_yields_empty_equity_curve():
         strategy=Null(),
         portal=_portal([]),
     )
-    result = engine.run()
-    assert result.equity_curve == []
+    with pytest.raises(ConfigurationError, match="no trading days"):
+        engine.run()
 
 
 # --------------------------------------------------------------------- #

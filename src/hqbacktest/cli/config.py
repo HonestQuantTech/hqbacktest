@@ -259,6 +259,16 @@ def _require_decimal(
         raise ConfigError(
             f"[{section_name}].{key} must be a number, got {type(value).__name__}"
         )
+    # Task 20: NaN / +Inf / -Inf are technically parseable by
+    # `Decimal(str('nan'))` but break every downstream comparison
+    # (e.g. `nan < 0` raises InvalidOperation). Reject them here
+    # so the user gets a clean single-line ConfigError instead of
+    # a traceback.
+    if not d.is_finite():
+        raise ConfigError(
+            f"[{section_name}].{key}={d} must be a finite number "
+            "(NaN / +Inf / -Inf are not allowed)"
+        )
     if min_value is not None and d < min_value:
         raise ConfigError(f"[{section_name}].{key}={d} must be >= {min_value}")
     return d

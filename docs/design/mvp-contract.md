@@ -200,6 +200,19 @@
 | CLI 警告 | `run_from_config` 末尾若 `result.factor_diagnostics` 非空，打印一行 `warning: N corporate-action factor jumps detected during holding periods; NAV excludes dividends (adjustment_policy=none), see summary.json`。 |
 | 文档承诺 | README 显著位置明示：`adjustment_policy=none` 下跨除权日的净值**系统性低估**（少分红现金），长区间结果不可用于收益评估，并链接因子诊断输出（`summary.json` / `events.jsonl`）。 |
 
+### 3.8 CLI 易用性与契约承诺一致性（任务 20 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| 策略模块解析 | `hqbacktest run` 把 config 文件所在目录和当前工作目录加入 `sys.path`（与 `python -m hqbacktest run` 行为一致），`[strategy].module = "my_strategy"` 这类不带点号的写法直接可 import。 |
+| `initial_cash` 校验 | 拒绝 `nan` / `+inf` / `-inf` / `float`；接受 `int` / `str` / `Decimal`；错误为单行 `ConfigError`（CLI exit 2）。 |
+| 日期校验 | `YYYYMMDD` 格式 + 真实日历；`20241399` 等非法日期立即拒。 |
+| 空交易窗口 | `[start, end]` 区间在 portal 日历上无交易日 → `ConfigurationError`，不得静默成功写出空结果。 |
+| 输出目录复用 | 已存在且非空的输出目录默认拒绝（CLI exit 3）；`--force` 可覆盖。 |
+| `order_value` 等下单函数 | 接受 `int` / `str` 金额（继续拒绝 `float`），降低策略样板代码。 |
+| `git_commit` 语义 | `run_metadata.json` 记录 **hqbacktest 自身** 的 git commit（engine 来源），不再记录用户 cwd 仓库 commit。 |
+| 文档一致性 | README「命令行」「错误信息」章节逐条与实现对齐；包布局含 `cli/` 子包；CLI 错误示例覆盖 exit 2/3/4 各档。 |
+
 ## 6. 不可变规则
 
 以下 13 条规则在 v0.1 期间**不允许任何代码绕过**；新增能力时若必须突破某条，必须先在本文档登记例外并同步 README。
@@ -254,3 +267,4 @@
 | 2026-08-24 | v0.1 | 任务 17 净值与指标基准：首日 `daily_return` / `drawdown` 以 `initial_cash` 为基准（不再硬编码 0）、后续日 running peak = `max(initial_cash, 历史 total_equity)`、波动率样本不足返回 `None` 而非 0、`Decimal(str(float(...)))` 替代 `Decimal(float(...))` 幂运算桥接、`positions.sellable_quantity` 口径登记为「结转后」；恒等式 `∏(1 + daily_return) = 1 + total_return` 成立；登记 §3.5 | hqbacktest 维护者 |
 | 2026-08-24 | v0.1 | 任务 18 策略隔离与审计完整性：`Order` 改为 `frozen=True`（策略无法篡改 `pending_orders()` 返回的 Order）、`DataView.portal` 改为私有 `_portal`、universe 生效（`RejectReason.OUT_OF_UNIVERSE`）、`Context.historical_universe()` 转发 `DataView.universe()` 受可见性约束；登记 §3.6 | hqbacktest 维护者 |
 | 2026-08-24 | v0.1 | 任务 19 因子诊断接入与分红偏差显性化：engine 在持仓/成交标的的因子跳变（阈值 0.1%）自动生成 DATA_WARNING + `FactorDiagnostic`，结果写入 `summary.json` / `events.jsonl`；CLI 末尾打印汇总警告；账本与净值完全不变；登记 §3.7 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 20 CLI 易用性与文档真实性：console script 把 config dir + cwd 加入 sys.path（策略模块解析与 `python -m` 对齐）；`initial_cash` 拒绝 nan/inf/float；空交易窗口、空输出目录、`--force` 覆盖；`order_value` 接受 int/str；`git_commit` 改为 hqbacktest 自身版本；README 错误码表与包布局对齐；登记 §3.8 | hqbacktest 维护者 |

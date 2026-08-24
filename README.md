@@ -108,9 +108,11 @@ hqbacktest/
 ├── pyproject.toml          # 构建、依赖、pytest 与 black 配置
 ├── src/hqbacktest/         # 引擎源码（src 布局）
 │   ├── __init__.py         # 版本及稳定的公开 API 导出
+│   ├── __main__.py         # `hqbacktest run` CLI 入口（任务 12）
 │   ├── domain/             # 任务 3 的模型、状态机、精度与序列化
 │   ├── data/               # 任务 4 的数据门户、DataView、缓存与校验
-│   └── engine/             # 任务 5–6 的事件时钟、调度器、BacktestEngine 与受控策略接口
+│   ├── engine/             # 任务 5–6 的事件时钟、调度器、BacktestEngine 与受控策略接口
+│   └── cli/                # 任务 12 的 TOML 配置解析、CLI runner、退出码
 ├── tests/                  # 单元测试，必须不依赖网络或本地行情文件
 ├── examples/               # 端到端示例（任务 11：buy_and_hold / moving_average）
 └── docs/design/            # 设计文档（如 mvp-contract.md）
@@ -197,7 +199,7 @@ hqbacktest/
 
 ## Python 用法（已实现）
 
-> 下面的代码就是 `examples/moving_average.py` 的简化版，可直接 `python -m hqbacktest run` 跑通（见 §命令行）。完整示例见 `examples/`。
+> 下面的代码就是 `examples/moving_average.py` 的简化版，演示了 `Context` 与 `DataView` 的基本交互。**端到端运行请用 CLI（见 §命令行）或直接 `python -m hqbacktest run`**；完整示例见 `examples/`。
 
 ```python
 from decimal import Decimal
@@ -273,6 +275,8 @@ hqbacktest run --config configs/moving_average.toml --output results/moving-aver
 python -m hqbacktest run --config configs/moving_average.toml --output results/moving-average
 ```
 
+**策略模块解析（任务 20）：** `hqbacktest run` 会把 config 文件所在目录和当前工作目录加入 `sys.path`，让 `[strategy].module = "my_strategy"` 这类不带点号的写法能直接 import 成功（与 `python -m hqbacktest run` 行为一致）。
+
 `--output` 可选：省略时使用配置中 `[output].directory`；提供时覆盖该值（例如 CI 里把结果重定向到临时目录）。
 
 ### 配置 schema
@@ -335,12 +339,18 @@ results/run-1/
 | 必填字段缺失 | 2 | `[start] missing required key 'start_date'` |
 | 未知 section / key | 2 | `unknown config sections: ['extra']; allowed: [...]` |
 | 日期格式错 | 2 | `[start].start_date: must be 8 digits` |
+| `initial_cash = nan` / `inf` | 2 | `[capital].initial_cash=NaN must be a finite number ...` |
+| `initial_cash = float` | 2 | `[capital].initial_cash must be int/str/Decimal; float is forbidden ...` |
+| 空交易窗口 | 2 | `no trading days in [...] for source 'memory'; ...` |
 | 策略模块无法导入 | 2 | `could not import strategy module 'examples.foo': ...` |
 | 策略类非 BaseStrategy 子类 | 2 | `MyStrategy is not a BaseStrategy subclass` |
 | 策略无 class_name 且模块无 BaseStrategy | 2 | `no BaseStrategy subclass found in ...` |
 | 输出目录不可创建 / 不可写 | 3 | `cannot create output directory ...: ...` |
+| 输出目录已含旧结果文件 | 3 | `output directory ... already contains prior-run files; pass force=True ...` |
 | 引擎异常（非 RunFailed） | 4 | `backtest run failed: ...` |
 | 成功 | 0 | stdout: `hqbacktest: wrote results to results/run-1` |
+
+CLI 同时支持 `--force` 覆盖已有输出目录：`hqbacktest run --config FILE --output DIR --force`。
 
 ### 复现性
 

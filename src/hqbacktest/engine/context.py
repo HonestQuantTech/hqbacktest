@@ -294,6 +294,35 @@ class Context:
         self._order_counter += 1
         return f"O{self._current_date}-{self._order_counter:06d}"
 
+    def _coerce_amount(self, value, name: str) -> Decimal:
+        """Coerce a monetary value to `Decimal`, accepting int/str/Decimal.
+
+        `float` and `bool` are rejected (contract rule 5: no binary
+        float enters the ledger), and NaN / Inf are rejected. Task 20:
+        lets strategies use literal cash values (`15000`, `'15000'`)
+        without wrapping them in `Decimal(...)`.
+        """
+        if isinstance(value, bool):
+            raise StrategyLifecycleError(f"{name} must be a number, got bool")
+        if isinstance(value, float):
+            raise StrategyLifecycleError(
+                f"{name} must not be float (contract rule 5); got {value!r}"
+            )
+        if not isinstance(value, (Decimal, int, str)):
+            raise StrategyLifecycleError(
+                f"{name} must be Decimal/int/str, got {type(value).__name__}"
+            )
+        if isinstance(value, (int, str)):
+            try:
+                value = Decimal(str(value))
+            except Exception as exc:
+                raise StrategyLifecycleError(
+                    f"{name}={value!r} is not a valid Decimal: {exc}"
+                ) from exc
+        if not value.is_finite():
+            raise StrategyLifecycleError(f"{name} must be finite, got {value}")
+        return value
+
     # ------------------------------------------------------------------ #
     # Order intents (contract: never mutates the ledger)
     # ------------------------------------------------------------------ #
@@ -322,15 +351,18 @@ class Context:
     def order_value(
         self,
         symbol: str,
-        value: Decimal,
+        value,
         order_type: OrderType = OrderType.MARKET,
     ) -> Optional[Order]:
-        """Place an order for `value` worth of `symbol` (positive => BUY)."""
+        """Place an order for `value` worth of `symbol` (positive => BUY).
+
+        `value` may be a `Decimal`, `int`, or numeric string; `float`
+        remains forbidden (contract rule 5). Task 20: widening the
+        accepted types here lets strategies use literal cash values
+        without first wrapping them in `Decimal(...)`.
+        """
         self._require_orderable("order_value")
-        if not isinstance(value, Decimal):
-            raise StrategyLifecycleError(
-                f"value must be Decimal, got {type(value).__name__}"
-            )
+        value = self._coerce_amount(value, "value")
         if value == 0:
             return None
         price = self.current_price(symbol)
@@ -377,15 +409,16 @@ class Context:
     def order_target_value(
         self,
         symbol: str,
-        target_value: Decimal,
+        target_value,
         order_type: OrderType = OrderType.MARKET,
     ) -> Optional[Order]:
-        """Reconcile holdings towards `target_value` worth of `symbol`."""
+        """Reconcile holdings towards `target_value` worth of `symbol`.
+
+        `target_value` may be a `Decimal`, `int`, or numeric string;
+        `float` remains forbidden (contract rule 5). Task 20.
+        """
         self._require_orderable("order_target_value")
-        if not isinstance(target_value, Decimal):
-            raise StrategyLifecycleError(
-                f"target_value must be Decimal, got {type(target_value).__name__}"
-            )
+        target_value = self._coerce_amount(target_value, "target_value")
         if target_value < 0:
             raise StrategyLifecycleError(
                 f"target_value must be non-negative, got {target_value}"

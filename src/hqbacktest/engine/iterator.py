@@ -12,7 +12,13 @@ from .errors import ConfigurationError
 
 
 class TradingDayIterator:
-    """Yields trading days in `[start, end]` (inclusive), in ascending order."""
+    """Yields trading days in `[start, end]` (inclusive), in ascending order.
+
+    Task 20: an empty trading-day window is a hard error. Silent
+    success on a zero-day run produces misleading "no signals"
+    reports and breaks reproducibility, so the iterator raises
+    `ConfigurationError` instead of yielding an empty sequence.
+    """
 
     def __init__(
         self,
@@ -28,6 +34,19 @@ class TradingDayIterator:
         self._start = start
         self._end = end
         self._trading_days: List[str] = list(portal.get_calendar(start, end))
+        if not self._trading_days:
+            # Use `source_name()` (CSV portal) or fall back to the
+            # `source` attribute (memory portal). Both portals expose a
+            # human-readable name so the error is informative.
+            source_name = (
+                portal.source_name()
+                if hasattr(portal, "source_name")
+                else getattr(portal, "source", "<unknown>")
+            )
+            raise ConfigurationError(
+                f"no trading days in [{start}, {end}] for source "
+                f"{source_name!r}; the backtest window has no data"
+            )
         self._index = 0
 
     def __iter__(self) -> Iterator[str]:

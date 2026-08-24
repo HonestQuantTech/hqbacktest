@@ -48,17 +48,25 @@ from .config import (
 
 
 def run_from_file(
-    config_path: str, output_dir: Optional[str] = None
+    config_path: str, output_dir: Optional[str] = None, force: bool = False
 ) -> "RunResult":  # type: ignore[name-defined]
     """Load the config, build the engine, run, and write the output dir.
 
     `output_dir` (from the CLI `--output` flag) overrides the config's
     `[output].directory` when given. Returns a `RunResult` with the exit
     code (0 on success) and the path of the output directory. The CLI
-    converts this to a process exit status.
+    converts this to a process exit status. `force=True` lets the
+    runner overwrite a non-empty output directory (task 20).
+
+    Task 20: prepend the config's directory and cwd to `sys.path` so
+    the user-supplied strategy module can be imported by name alone
+    (the documented first-mile workflow).
     """
+    _prepare_sys_path(config_path)
     config_file = load_config_file(config_path)
-    return run_from_config(config_file, source_path=config_path, output_dir=output_dir)
+    return run_from_config(
+        config_file, source_path=config_path, output_dir=output_dir, force=force
+    )
 
 
 def run_from_config(
@@ -66,8 +74,16 @@ def run_from_config(
     *,
     source_path: Optional[str] = None,
     output_dir: Optional[str] = None,
+    force: bool = False,
 ) -> "RunResult":  # type: ignore[name-defined]
-    """Build the engine from a validated `ConfigFile` and run the backtest."""
+    """Build the engine from a validated `ConfigFile` and run the backtest.
+
+    `force=True` lets the run overwrite an output directory that
+    already contains prior-run files (task 20). Without `force`,
+    mixing a fresh run with stale CSVs / summary.json from a
+    previous run is rejected with exit code 3 to keep the audit
+    trail honest.
+    """
     effective_output = output_dir or config_file.output_directory
     try:
         strategy = resolve_strategy(config_file)
@@ -76,6 +92,30 @@ def run_from_config(
     backtest_config = build_backtest_config(config_file)
     portal = _resolve_portal(backtest_config.source, backtest_config.data_root)
     output_path = Path(effective_output)
+    if output_path.exists() and not output_path.is_dir():
+        # The configured output path is an existing FILE, not a
+        # directory. Refuse rather than silently failing later.
+        return RunResult(
+            exit_code=3,
+            output_dir=None,
+            message=(
+                f"output path {output_path!s} is not a directory; "
+                f"remove the file or change [output].directory"
+            ),
+        )
+    if output_path.exists() and not force:
+        # Reject if the directory already holds files from a prior run;
+        # an empty directory is allowed (first run).
+        if any(output_path.iterdir()):
+            return RunResult(
+                exit_code=3,
+                output_dir=output_path,
+                message=(
+                    f"output directory {output_path!s} already contains "
+                    f"prior-run files; pass force=True to overwrite or "
+                    f"choose a fresh directory"
+                ),
+            )
     try:
         output_path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -92,10 +132,15 @@ def run_from_config(
         )
 
     from ..engine.engine import BacktestEngine  # local: avoid circular
+    from ..engine.errors import ConfigurationError
 
     try:
         engine = BacktestEngine(backtest_config, strategy=strategy, portal=portal)
         result = engine.run()
+    except ConfigurationError as exc:
+        # A configuration error (e.g. an empty trading-day window) is a
+        # user-input problem, not a run failure: exit 2, single line.
+        return RunResult(exit_code=2, output_dir=output_path, message=str(exc))
     except Exception as exc:
         # We do NOT swallow this as a normal RunFailed; the CLI surfaces
         # the message verbatim.
@@ -207,20 +252,60 @@ def _write_run_metadata(
 
 
 def _git_commit() -> Optional[str]:
-    """Return the current short git commit, or `None` if unavailable.
+    """Return the hqbacktest package's own short git commit, or `None`
+    if unavailable.
 
-    We never raise from here; failure to read git is a no-op.
+    Task 20: the commit recorded here is the commit of the
+    hqbacktest repo, NOT the user's cwd repository. A user
+    running the CLI from inside their own strategy repo gets
+    hqbacktest's commit (the engine that produced the result);
+    if they want their strategy's commit too they can record it
+    themselves in the config. We never raise from here; failure
+    to read git is a no-op.
     """
     try:
-        out = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
-            timeout=2,
-        )
-        text = out.decode("utf-8").strip()
-        return text or None
+        import hqbacktest as _hq_pkg
+
+        pkg_dir = Path(_hq_pkg.__file__).resolve().parent
+        # Walk up to find the directory that contains `.git`.
+        for parent in [pkg_dir, *pkg_dir.parents]:
+            if (parent / ".git").exists():
+                out = subprocess.check_output(
+                    ["git", "-C", str(parent), "rev-parse", "--short", "HEAD"],
+                    stderr=subprocess.DEVNULL,
+                    timeout=2,
+                )
+                text = out.decode("utf-8").strip()
+                return text or None
+        return None
     except Exception:
         return None
+
+
+def _prepare_sys_path(config_path: str) -> None:
+    """Add the config file's directory and cwd to `sys.path`.
+
+    Task 20: lets the user-supplied strategy module be imported by
+    name alone (e.g. `module = 'strategy'`) without having to add
+    `sys.path` boilerplate in the strategy file. Mirrors what
+    `python -m hqbacktest run` would do for in-tree imports.
+    """
+    candidates: List[str] = []
+    try:
+        cfg_dir = str(Path(config_path).resolve().parent)
+        if cfg_dir and cfg_dir not in candidates:
+            candidates.append(cfg_dir)
+    except OSError:
+        pass
+    try:
+        cwd = str(Path.cwd())
+        if cwd and cwd not in candidates:
+            candidates.append(cwd)
+    except OSError:
+        pass
+    for entry in candidates:
+        if entry and entry not in sys.path:
+            sys.path.insert(0, entry)
 
 
 __all__ = [
