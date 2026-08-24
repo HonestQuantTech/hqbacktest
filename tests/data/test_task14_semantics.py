@@ -310,3 +310,29 @@ def test_get_bars_before_universe_start_raises_missing_data_not_future():
         view.get_bars("600000.SH", "20240101", "20240102")
     # Must not be (and must not be reported as) future-data access.
     assert not isinstance(exc.value, FutureDataAccessError)
+
+
+def test_current_price_none_when_suspended_beyond_lookback():
+    """The lookback is bounded by 20 *trading days*, not 20 *bars*.
+
+    A symbol suspended for longer than the lookback must return None (the
+    window is exhausted), not reach back to its pre-suspension close. This
+    is a regression guard for a task-15 rewrite that briefly trimmed the
+    result to the last 20 bars instead of the last 20 trading days.
+    """
+    days = [f"{20240102 + i:08d}" for i in range(30)]
+    p = InMemoryDataPortal(calendar=days, as_of=days[-1])
+    for d in days[:3]:
+        p.add_bar(_bar(d, "10.00"))
+    view = DataView(portal=p, visible_through=days[-1])
+    assert view.current_price("600000.SH") is None
+
+
+def test_current_price_uses_latest_within_20_trading_days():
+    """A bar within the 20-trading-day window is still returned."""
+    days = [f"{20240102 + i:08d}" for i in range(30)]
+    p = InMemoryDataPortal(calendar=days, as_of=days[-1])
+    # Bar on day index 15 (well within the last 20 trading days) at 10.5.
+    p.add_bar(_bar(days[15], "10.50"))
+    view = DataView(portal=p, visible_through=days[-1])
+    assert view.current_price("600000.SH") == Decimal("10.5000")

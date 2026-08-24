@@ -201,36 +201,40 @@ class DataView:
 
         `InvalidDataError` propagates: a corrupt row is an infrastructure
         failure that must not be silently folded into "no price".
-        `MissingDataError` (a per-day gap: suspended / delisted / pre-IPO)
-        is absorbed — such gaps are expected for suspended symbols.
         `SnapshotFileMissingError` (a whole-day snapshot file missing on
-        disk) is an infrastructure failure and propagates so the run aborts.
+        disk) is an infrastructure failure and propagates so the run aborts;
+        `MissingDataError` (suspended / delisted / pre-IPO) is absorbed.
+
+        Task 15 performance: one `get_calendar` (cached) resolves the
+        20-trading-day cutoff, then a single `get_bars(cutoff, end)` is
+        dispatched. This avoids the old N `get_bars(day, day)` round-trips
+        while preserving the 20-**trading-day** lookback bound.
         """
         validate_symbol(symbol)
         if self.visible_through == NO_HISTORY_SENTINEL:
             return None
-        # Calendar lookback: a missing window is an infrastructure failure.
+        # Resolve the 20-trading-day cutoff. The lookback is bounded by
+        # trading days, NOT by bar count: a symbol suspended for longer
+        # than the lookback must exhaust the window (return None), not
+        # reach further back to its pre-suspension close.
         trading_days = self.portal.get_calendar(
             _trading_day_lookback_start(self.visible_through),
             self.visible_through,
         )
         if not trading_days:
             return None
-        # Walk back day by day; per task 14 the cap is CURRENT_PRICE_LOOKBACK
-        # trading days.
-        for day in reversed(trading_days[-CURRENT_PRICE_LOOKBACK:]):
-            if day > self.visible_through:
-                continue
-            try:
-                bars = self.portal.get_bars(symbol, day, day)
-            except SnapshotFileMissingError:
-                # Infrastructure failure: propagate so the run aborts.
-                raise
-            except MissingDataError:
-                continue
-            if not bars:
-                continue
-            close = bars[0].close
+        lookback = trading_days[-CURRENT_PRICE_LOOKBACK:]
+        cutoff = lookback[0]
+        try:
+            bars = self.portal.get_bars(symbol, cutoff, self.visible_through)
+        except SnapshotFileMissingError:
+            # Whole-day file gone: infrastructure failure, propagate so
+            # the engine aborts the run with DATA_ERROR.
+            raise
+        except MissingDataError:
+            return None
+        for bar in reversed(bars):
+            close = bar.close
             if close is not None and close > 0:
                 return close
         return None

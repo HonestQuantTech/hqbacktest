@@ -545,7 +545,7 @@ def test_get_bars_rejects_duplicate_symbol_rows(tmp_path):
     )
     _write_calendar(snap, [("20240102", "Y")])
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
-    with pytest.raises(InvalidDataError, match="at most one row"):
+    with pytest.raises(InvalidDataError, match="duplicate row"):
         portal.get_bars("600000.SH", "20240102", "20240102")
 
 

@@ -129,6 +129,26 @@ hqbacktest/
 
 数据集必须包含 `calendar.csv`，以及按交易日组织的 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv` 与 `stock_factor/{YYYYMMDD}.csv`。这些文件由 `hqdata` CLI 在回测前写入；hqbacktest 既不下载数据，也不保存凭证。任何真实 token、账户号或私密配置都**不应**提交到仓库，也不应出现在回测结果目录中。
 
+### 性能与内存（任务 15）
+
+`HqDataCsvPortal` 在单次回测中按「按日文件缓存 + 按 symbol 累积序列」两层缓存：
+
+- 每个 `stock_daily/{D}.csv` / `stock_factor/{D}.csv` 在一次运行中最多解析一次；解析结果以 `{date: {symbol: Bar}}` 形式缓存。
+- 每个 symbol 在内存中维护一个按日期升序的累积序列；`get_bars` / `get_factor` 在该序列上做 `bisect` 切片，单次调用 O(log N)。
+- `DataView.history` 走累积缓存，单次 `get_bars` 切片即可；`DataView.current_price` 仅需一次 `get_calendar`（有缓存）确定 20 个交易日回看起点 + 一次 `get_bars`，二者都避免了旧实现的逐日 `get_bars(day, day)` 往返。
+- `Bar` / 因子对象在重叠窗口间复用，仅返回列表的防御性拷贝。
+
+真实数据基准（`~/.hqdata/tushare`，20260105–20260731，139 个交易日，每个 daily 文件约 5000 行）：
+
+| 场景 | 总耗时（含首次数据加载） | 任务 15 目标 |
+| --- | --- | --- |
+| 5 stocks × 139 days MA 策略 | ~7.6 s | < 10 s ✅ |
+| 300 stocks × 139 days MA 策略 | ~9.4 s | < 120 s ✅ |
+
+内存量级：每个 `Bar` 约 200 字节。覆盖完整窗口（5000 symbols × 139 days ≈ 70 万 Bar）约 140 MB；策略触及的 universe 通常远小于全市场。`_symbol_bars` 累积只对真实访问过的 symbol 增长。
+
+性能冒烟测试在 `tests/data/test_task15_performance.py`，50 symbols × 250 days 全量 `history(bar_count=20)` 在 15 秒阈值内完成。
+
 ## Python 用法（已实现）
 
 > 下面的代码就是 `examples/moving_average.py` 的简化版，可直接 `python -m hqbacktest run` 跑通（见 §命令行）。完整示例见 `examples/`。
