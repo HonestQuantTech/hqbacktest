@@ -24,10 +24,10 @@ Out of scope (deferred to task 12+):
 
 from dataclasses import asdict
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..data.data_view import DataView
-from ..data.errors import MissingDataError, SnapshotFileMissingError
+from ..data.errors import DataError, MissingDataError, SnapshotFileMissingError
 from ..data.hqdata_portal import HqDataCsvPortal, resolve_source_location
 from ..data.portal import MarketDataPortal
 from ..domain.enums import EventType, OrderStatus, RejectReason
@@ -39,8 +39,11 @@ from .broker import SimulatedBroker
 from .config import BacktestConfig
 from .context import Context
 from .corporate_actions import (
+    DEFAULT_JUMP_BAND,
+    FactorDiagnostic,
     FactorDiagnosticCollector,
     V01_ADJUSTMENT_POLICY,
+    analyze_factor_series,
 )
 from .errors import (
     ConfigurationError,
@@ -95,6 +98,19 @@ class BacktestEngine:
         self._event_log = EventLog()
         self._portfolio = Portfolio(initial_cash=config.initial_cash)
         self._factor_diagnostics = FactorDiagnosticCollector()
+        # Task 19: per-symbol cumulative factor history (sorted by
+        # date) so the engine can run holdings-period factor
+        # diagnostics incrementally without re-reading the portal.
+        self._factor_history: Dict[str, List[Tuple[str, Decimal]]] = {}
+        # Holding-period jump band (relative). A factor ratio outside
+        # this band while a symbol is held is a strong dividend / split
+        # signal. 0.1% matches task 19's "cannot be ignored" threshold;
+        # the default `DEFAULT_JUMP_BAND` (0.5, 2.0) is reserved for
+        # general factor-quality diagnostics.
+        self._holding_jump_band: Tuple[Decimal, Decimal] = (
+            Decimal("0.999"),
+            Decimal("1.001"),
+        )
         self._fills: List[Fill] = []
         self._equity_curve: List[EquityPoint] = []
         # Every order the engine has consumed (insertion-ordered), so the
@@ -273,6 +289,11 @@ class BacktestEngine:
             # End-of-day settlement: roll today's buys into sellable (T+1).
             self._portfolio.settle_t1(today=today, previous_date=None)
             self._snapshot_equity(today, portal)
+            # Task 19: run holdings-period factor diagnostics for
+            # symbols held or traded today. Diagnostics are pure
+            # observations: they never mutate cash, positions or
+            # equity, and they cannot abort the run.
+            self._run_factor_diagnostics(today, portal)
         except RunFailed:
             raise
         except Exception as exc:
@@ -652,3 +673,118 @@ class BacktestEngine:
     def data_view(self, today: str) -> DataView:
         """Build a `DataView` snapshot as the engine would at `BAR_CLOSE(today)`."""
         return DataView(portal=self.portal, visible_through=today)
+
+    # ------------------------------------------------------------------ #
+    # Task 19: holdings-period factor diagnostics
+    # ------------------------------------------------------------------ #
+
+    def _run_factor_diagnostics(self, today: str, portal: MarketDataPortal) -> None:
+        """For each currently-held symbol, run factor diagnostics.
+
+        Reads the cumulative factor history for `today`, calls
+        `analyze_factor_series` with the tighter holdings-period
+        jump band (0.1% relative), and records observations on
+        the `FactorDiagnosticCollector` and a `DATA_WARNING`
+        event for each new anomaly.
+
+        Only symbols with a non-zero position at day-end are scanned
+        (task 19: "持仓涉及的标的"). A symbol that was fully sold
+        (position back to zero) must NOT keep emitting holdings-period
+        warnings — its holding period has ended, and the accumulated
+        factor history is therefore reset.
+
+        Diagnostics are pure observations: they MUST NOT mutate
+        cash, positions, or equity (contract task 9 invariant).
+        Missing factors or whole-day snapshot failures are silently
+        skipped so the run continues (the existing
+        `_snapshot_equity` / broker paths raise DATA_ERROR on
+        infrastructure failures, and we do not want to raise a
+        second error here).
+        """
+        relevant = {
+            sym for sym, pos in self._portfolio.positions.items() if pos.quantity > 0
+        }
+        # Drop factor history for symbols no longer held so a future
+        # re-entry does not compare against a pre-gap, stale factor.
+        for sym in list(self._factor_history):
+            if sym not in relevant:
+                del self._factor_history[sym]
+        for sym in sorted(relevant):
+            history = self._factor_history.get(sym, [])
+            new_factor_rows = self._load_factor_rows(sym, today)
+            for d, f in new_factor_rows:
+                if not history or history[-1][0] < d:
+                    history.append((d, f))
+            self._factor_history[sym] = history
+            if len(history) < 2:
+                continue
+            diagnostics = analyze_factor_series(
+                symbol=sym,
+                expected_dates=[d for d, _ in history],
+                factors=history,
+                jump_band=self._holding_jump_band,
+            )
+            existing = {
+                (d.symbol, d.date, d.kind, d.detail)
+                for d in self._factor_diagnostics.all()
+            }
+            for diag in diagnostics:
+                key = (diag.symbol, diag.date, diag.kind, diag.detail)
+                if key in existing:
+                    continue
+                self._factor_diagnostics.record(diag)
+                # Include the actual factor values in the audit event so
+                # the human can verify the ex-date dividend event from
+                # the event log alone (without re-reading the snapshot).
+                prev_factor = self._prev_factor_before(history, diag.date)
+                new_factor = self._factor_on(history, diag.date)
+                detail = (
+                    f"factor diagnostic: {diag.symbol} {diag.kind} on "
+                    f"{diag.date}: factor {prev_factor} -> {new_factor}; "
+                    f"{diag.detail}"
+                )
+                self._event_log.record(
+                    EngineEvent(
+                        date=today,
+                        phase=EventType.DATA_WARNING,
+                        detail=detail,
+                    )
+                )
+
+    def _load_factor_rows(self, symbol: str, today: str) -> List[Tuple[str, Decimal]]:
+        """Read today's factor for `symbol`, returning a one-row list.
+
+        Tolerates data-layer absences (MissingDataError /
+        SnapshotFileMissingError / InvalidDataError) by returning an
+        empty list (the analyzer will simply not see a row for today).
+        This is intentional: factor-data absences are diagnostic
+        observations, not run-aborting failures. Programming errors
+        (anything that is NOT a `DataError`) still propagate.
+        """
+        try:
+            rows = self.portal.get_factor(symbol, today, today)
+        except DataError:
+            return []
+        return [(today, f) for _, f in rows]
+
+    @staticmethod
+    def _prev_factor_before(
+        history: List[Tuple[str, Decimal]], date: str
+    ) -> Optional[Decimal]:
+        """Return the most recent factor in `history` strictly
+        before `date`, or `None` if no earlier row exists.
+        """
+        prev: Optional[Decimal] = None
+        for d, f in history:
+            if d < date:
+                prev = f
+            else:
+                break
+        return prev
+
+    @staticmethod
+    def _factor_on(history: List[Tuple[str, Decimal]], date: str) -> Optional[Decimal]:
+        for d, f in history:
+            if d == date:
+                return f
+        return None

@@ -112,6 +112,19 @@ def run_from_config(
     )
     result.save(str(output_path))
 
+    # Task 19: warn the operator when factor diagnostics surfaced a
+    # holding-period jump. The NAV excludes dividends (policy="none"),
+    # so this is the only place a human sees the bias. The CLI is the
+    # operator's terminal; we print one summary line.
+    holdings_diag = result.factor_diagnostics or []
+    if holdings_diag:
+        print(
+            f"warning: {len(holdings_diag)} corporate-action factor "
+            f"jumps detected during holding periods; NAV excludes "
+            f"dividends (adjustment_policy=none), see summary.json",
+            flush=True,
+        )
+
     return RunResult(exit_code=0, output_dir=output_path, message="")
 
 

@@ -182,6 +182,19 @@ hqbacktest/
 
 完整口径见 `docs/design/mvp-contract.md` §3.6。回归测试在 `tests/engine/test_task18_isolation.py`。
 
+### 因子诊断与分红偏差显性化（任务 19）
+
+> ⚠️ **`adjustment_policy=none` 下，跨除权日的净值系统性低估（少分红现金）。**
+
+`v0.1` 严格不实现分红会计（契约任务 9）。任务 19 让偏差**可见**：
+
+- 引擎对**当前持仓**标的的因子跳变（|Δfactor/factor| > **0.1%**）自动生成 `DATA_WARNING` 事件、`FactorDiagnostic` 记录；写入 `result.factor_diagnostics`、`summary.json`、`events.jsonl`。清仓后（持仓归零）停止告警，持有期结束。
+- **账本零影响**：诊断是只读观测，cash / position / equity 与无诊断时 byte-identical（`test_diagnostics_do_not_change_ledger` 锁定）。
+- CLI 末尾打印一行汇总：`warning: N corporate-action factor jumps detected during holding periods; NAV excludes dividends (adjustment_policy=none), see summary.json`。
+- 跨除权日长区间结果不可用于收益评估，必须先评估 factor 跳变并改用 `factor_total_return`（v0.1.1+ 后续任务）；README 显著位置保留此声明并链接诊断输出。
+
+完整口径见 `docs/design/mvp-contract.md` §3.7。复刻 600000.SH 2026-07-16 除权案例的回归测试在 `tests/engine/test_task19_factor_diagnostics.py`。
+
 ## Python 用法（已实现）
 
 > 下面的代码就是 `examples/moving_average.py` 的简化版，可直接 `python -m hqbacktest run` 跑通（见 §命令行）。完整示例见 `examples/`。
