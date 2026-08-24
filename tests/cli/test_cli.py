@@ -69,6 +69,51 @@ def test_config_load_minimal(tmp_path: Path) -> None:
     assert cf.raw_text  # exact bytes preserved for the audit trail
 
 
+def test_config_parses_data_root(tmp_path: Path) -> None:
+    cfg_path = _write(
+        tmp_path / "c.toml",
+        """
+        [start]
+        start_date = "20240102"
+        end_date = "20240104"
+        [capital]
+        initial_cash = "100000"
+        [data]
+        source = "tushare"
+        data_root = "/mnt/market-data"
+        [strategy]
+        module = "examples.buy_and_hold"
+        [output]
+        directory = "out"
+        """,
+    )
+    cf = load_config_file(str(cfg_path))
+    assert cf.data_root == "/mnt/market-data"
+    bc = build_backtest_config(cf)
+    assert bc.data_root == "/mnt/market-data"
+
+
+def test_config_defaults_data_root(tmp_path: Path) -> None:
+    cfg_path = _write(
+        tmp_path / "c.toml",
+        """
+        [start]
+        start_date = "20240102"
+        end_date = "20240104"
+        [capital]
+        initial_cash = "100000"
+        [data]
+        source = "tushare"
+        [strategy]
+        module = "examples.buy_and_hold"
+        [output]
+        directory = "out"
+        """,
+    )
+    cf = load_config_file(str(cfg_path))
+    assert cf.data_root == "~/.hqdata"
+
+
 def test_config_rejects_missing_start_date(tmp_path: Path) -> None:
     cfg_path = _write(
         tmp_path / "c.toml",
@@ -304,7 +349,7 @@ def test_resolve_strategy_fails_for_non_subclass(tmp_path: Path) -> None:
 # --------------------------------------------------------------------- #
 
 
-def _minimal_config(output_dir: Path) -> str:
+def _minimal_config(output_dir: Path, data_root: str = "~/.hqdata") -> str:
     return f"""
     [start]
     start_date = "20240102"
@@ -313,6 +358,7 @@ def _minimal_config(output_dir: Path) -> str:
     initial_cash = "100000"
     [data]
     source = "tushare"
+    data_root = "{data_root}"
     [strategy]
     module = "examples.buy_and_hold"
     [output]
@@ -320,9 +366,34 @@ def _minimal_config(output_dir: Path) -> str:
     """
 
 
+def _write_csv_snapshot(tmp_path: Path) -> str:
+    """Write a minimal, deterministic hqdata CSV snapshot; return data_root.
+
+    The engine (BuyAndHold) only reads `calendar.csv` and
+    `stock_daily/{date}.csv`, so a 3-day snapshot is sufficient and keeps
+    the CLI end-to-end tests hermetic (no `~/.hqdata` dependency).
+    """
+    snap = tmp_path / "hqdata" / "tushare"
+    daily = snap / "stock_daily"
+    daily.mkdir(parents=True, exist_ok=True)
+    dates = ["20240102", "20240103", "20240104"]
+    (snap / "calendar.csv").write_text(
+        "date,is_open\n" + "".join(f"{d},Y\n" for d in dates),
+        encoding="utf-8",
+    )
+    for d in dates:
+        (daily / f"{d}.csv").write_text(
+            "symbol,date,open,high,low,close,volume\n"
+            f"600000.SH,{d},10.00,15.00,9.00,10.00,1000\n",
+            encoding="utf-8",
+        )
+    return str(snap.parent)
+
+
 def test_runner_writes_all_expected_files(tmp_path: Path) -> None:
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text(_minimal_config(tmp_path / "out"), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
     result = run_from_file(str(cfg_path))
     assert result.exit_code == 0, result.message
     out = result.output_dir
@@ -343,8 +414,9 @@ def test_runner_writes_all_expected_files(tmp_path: Path) -> None:
 def test_runner_writes_run_metadata(tmp_path: Path) -> None:
     import json
 
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text(_minimal_config(tmp_path / "out"), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
     result = run_from_file(str(cfg_path))
     assert result.exit_code == 0
     meta = json.loads((result.output_dir / "run_metadata.json").read_text())
@@ -355,6 +427,7 @@ def test_runner_writes_run_metadata(tmp_path: Path) -> None:
     assert meta["config_source"] == "tushare"
     assert meta["config_strategy_module"] == "examples.buy_and_hold"
     assert meta["adjustment_policy"] == "none"
+    assert meta["data_root"] == data_root
     # git commit is either set (if the repo has one) or absent.
     assert "git_commit" in meta
 
@@ -363,8 +436,9 @@ def test_runner_does_not_write_secrets(tmp_path: Path, monkeypatch) -> None:
     """Tokens, env vars, and absolute local paths must never appear in
     the output directory."""
     monkeypatch.setenv("HQBACKTEST_TEST_TOKEN", "super-secret-token-12345")
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text(_minimal_config(tmp_path / "out"), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
     result = run_from_file(str(cfg_path))
     assert result.exit_code == 0
     for path in result.output_dir.iterdir():
@@ -375,12 +449,17 @@ def test_runner_does_not_write_secrets(tmp_path: Path, monkeypatch) -> None:
 
 def test_runner_is_deterministic(tmp_path: Path) -> None:
     """Two runs with the same config and same data produce identical tables."""
+    data_root = _write_csv_snapshot(tmp_path)
     a = tmp_path / "a"
     b = tmp_path / "b"
     a.mkdir()
     b.mkdir()
-    (a / "config.toml").write_text(_minimal_config(a / "out"), encoding="utf-8")
-    (b / "config.toml").write_text(_minimal_config(b / "out"), encoding="utf-8")
+    (a / "config.toml").write_text(
+        _minimal_config(a / "out", data_root), encoding="utf-8"
+    )
+    (b / "config.toml").write_text(
+        _minimal_config(b / "out", data_root), encoding="utf-8"
+    )
     res_a = run_from_file(str(a / "config.toml"))
     res_b = run_from_file(str(b / "config.toml"))
     assert res_a.exit_code == 0
@@ -398,9 +477,10 @@ def test_runner_is_deterministic(tmp_path: Path) -> None:
 
 
 def test_runner_creates_output_directory(tmp_path: Path) -> None:
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "config.toml"
     out_dir = tmp_path / "does" / "not" / "exist"
-    cfg_path.write_text(_minimal_config(out_dir), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(out_dir, data_root), encoding="utf-8")
     result = run_from_file(str(cfg_path))
     assert result.exit_code == 0
     assert result.output_dir.exists()
@@ -412,8 +492,9 @@ def test_runner_output_override_beats_config_directory(tmp_path: Path) -> None:
 
     config_out = tmp_path / "from_config"
     override_out = tmp_path / "from_cli_flag"
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "config.toml"
-    cfg_path.write_text(_minimal_config(config_out), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(config_out, data_root), encoding="utf-8")
     result = run_from_file(str(cfg_path), output_dir=str(override_out))
     assert result.exit_code == 0, result.message
     assert result.output_dir == override_out
@@ -450,8 +531,9 @@ def test_cli_help_exits_0(capsys) -> None:
 
 
 def test_cli_runs_end_to_end(tmp_path: Path) -> None:
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "c.toml"
-    cfg_path.write_text(_minimal_config(tmp_path / "out"), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
     rc = main(["run", "--config", str(cfg_path), "--output", str(tmp_path / "out")])
     assert rc == 0
     assert (tmp_path / "out" / "equity_curve.csv").exists()
@@ -459,8 +541,9 @@ def test_cli_runs_end_to_end(tmp_path: Path) -> None:
 
 def test_cli_run_without_output_uses_config_directory(tmp_path: Path) -> None:
     """`--output` is optional; without it the config's directory is used."""
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "c.toml"
-    cfg_path.write_text(_minimal_config(tmp_path / "out"), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
     rc = main(["run", "--config", str(cfg_path)])
     assert rc == 0
     assert (tmp_path / "out" / "equity_curve.csv").exists()
@@ -482,8 +565,9 @@ def test_console_script_runs_end_to_end(tmp_path: Path) -> None:
     not depend on the console-script being installed on the test machine.
     """
     repo = Path(__file__).resolve().parents[2]
+    data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "c.toml"
-    cfg_path.write_text(_minimal_config(tmp_path / "out"), encoding="utf-8")
+    cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
     result = subprocess.run(
         [
             sys.executable,

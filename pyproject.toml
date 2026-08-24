@@ -48,6 +48,7 @@ dev = [
   "pytest>=7.0",
   "pytest-cov>=4.0",
   "black>=25.1.0",
+  "build>=1.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -64,3 +65,24 @@ markers = [
 [tool.black]
 line-length = 88
 target-version = ["py310", "py311", "py312"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/hqbacktest"]
+# Only the `python -m hqbacktest` shim is omitted; it is a 4-line entry
+# point whose only body runs under `if __name__ == "__main__"` and is
+# exercised via subprocess (not measured by in-process coverage).
+# `cli/__main__.py` is real, tested business code and stays measured.
+omit = [
+  "src/hqbacktest/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 80
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]

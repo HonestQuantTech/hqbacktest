@@ -164,7 +164,7 @@ class BacktestResult:
             json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
-        # The full audit trail is part of the result (TODO task 10).
+        # The full audit trail is part of the result.
         with (out / "events.jsonl").open("w", encoding="utf-8") as fh:
             for event in self.event_log.all():
                 fh.write(

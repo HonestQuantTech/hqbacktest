@@ -7,12 +7,13 @@
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 CLI 完成阶段**：
+`hqbacktest` 当前处于**v0.1 发布候选**：
 
-- **已实现（任务 1–12 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 为设计草案，因子诊断接口与 `analyze_factor_series` 分析器已就位。`BacktestResult` 含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` / `PerformanceMetrics` / `events.jsonl` / `data_version` / `factor_diagnostics`；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。`examples/buy_and_hold.py` 与 `examples/moving_average.py` 用公共 API 跑通端到端流程并有 7 天确定性 `InMemoryDataPortal` 数据 fixture，10 项端到端回归测试覆盖完整生命周期。`hqbacktest run --config FILE --output DIR` 命令行（`hqbacktest/cli/` 包，TOML 配置 + 校验 + 策略导入 + 元数据 + 独立输出目录，绝不泄露凭证）；22 项 CLI 测试覆盖端到端、配置验证、可复现性与错误信息。CI 仍属后续任务。
-- **计划中（任务 13）：** CI 与发布。
+- **已实现（任务 1–13 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 为设计草案，因子诊断接口与 `analyze_factor_series` 分析器已就位。`BacktestResult` 含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` / `PerformanceMetrics` / `events.jsonl` / `data_version` / `factor_diagnostics`；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。`examples/buy_and_hold.py` 与 `examples/moving_average.py` 用公共 API 跑通端到端流程并有 7 天确定性 `InMemoryDataPortal` 数据 fixture，10 项端到端回归测试覆盖完整生命周期。`hqbacktest run --config FILE --output DIR` 命令行（`hqbacktest/cli/` 包，TOML 配置 + 校验 + 策略导入 + 元数据 + 独立输出目录，绝不泄露凭证）；26 项 CLI 测试覆盖端到端、配置验证、可复现性与错误信息。`.github/workflows/ci.yml` 覆盖 Python 3.10 / 3.11 / 3.12、`black`、`pytest`、`pytest-cov`、示例 smoke 与 CLI smoke；`python -m build` 产出 sdist + wheel；`CHANGELOG.md` 记录 v0.1。
 
-本文的“目标用法”“目标命令行”和功能表用于先固定未来产品契约，方便按路线图逐步实现；其中的示例在对应能力落地前**不能直接运行**。产品契约、术语、日事件顺序与不可变规则见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)；本文与该文档的术语和默认值保持一致，任何契约变更必须先更新该文档。实际开发顺序、每步验收条件和 AI 协作提示见 [TODO.md](TODO.md)。
+- **不在 v0.1 内（路线图）：** 限价 / 止损单、成交量参与率、部分成交；ST / 涨跌停 / 新股 / 北交所规则；融资融券 / 期货 / 期权 / 多账户；指数基准与归因；Notebook 与远程策略入口；JSON Schema 校验以外的策略注册中心；交互图表 / HTML 报告。
+
+本文描述的用法、命令行和功能表与 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md) 一致；其中的示例已经可以按 §示例 章节运行。功能表区分「已实现」与「路线图 / 计划中」；任何契约变更必须先更新契约文档。开发顺序与 AI 协作提示见 [TODO.md](TODO.md)。
 
 ## 定位
 
@@ -43,7 +44,7 @@
 | 公司行为扩展 | `CorporateActionProvider`、`AdjustmentPolicy`、`analyze_factor_series` | v0.1 仅 `adjustment_policy="none"`；`CorporateActionProvider` 为设计草案（10 个权威字段）；`factor_total_return` 准入标准（7 项会计语义）已条目化；因子诊断分析器可对缺失/零负/异常跳变/跨源不一致生成可追溯诊断，引擎默认不自动启用；任何其他 `adjustment_policy` 在配置校验时拒绝 | 部分实现 |
 | 端到端示例 | `examples/buy_and_hold.py`、`examples/moving_average.py` | 仅用公共 `BaseStrategy` + `Context` API；7 天 `InMemoryDataPortal` 确定性数据；10 项端到端回归测试覆盖买入、下单、次日成交、T+1、费用、净值与指标导出 | 已实现 |
 | 结果与分析 | `BacktestResult`、`PerformanceMetrics` | 净值曲线、订单/成交/持仓/费用 CSV + `summary.json` + `events.jsonl`；累计收益 / 年化 / 日与年化波动率 / 夏普 / 最大回撤 / 换手率 / 交易次数 / 胜率 / 边界 notes；持仓无价即运行失败（`DATA_ERROR`)；公式在 `engine/metrics.py` 注释中显式 | 已实现 |
-| 配置与命令行 | `hqbacktest run`、`cli/config.py`、`cli/runner.py` | TOML 配置 + 校验 + 策略导入 + 独立输出目录（`config.toml` / `run_metadata.json` / `events.jsonl` / 五个 CSV + `summary.json`）；`rule_set` 从快照中剥离以保 summary.json 字节稳定；22 项 CLI 测试覆盖端到端、配置验证、可复现性与错误信息；不写入 token / 完整环境变量 / 本地绝对路径 | 已实现 |
+| 配置与命令行 | `hqbacktest run`、`cli/config.py`、`cli/runner.py` | TOML 配置 + 校验 + 策略导入 + 独立输出目录（`config.toml` / `run_metadata.json` / `events.jsonl` / 五个 CSV + `summary.json`）；`rule_set` 从快照中剥离以保 summary.json 字节稳定；26 项 CLI 测试覆盖端到端、配置验证、可复现性与错误信息；不写入 token / 完整环境变量 / 本地绝对路径 | 已实现 |
 
 ## 首个可用版本的范围
 
@@ -72,7 +73,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、公司行为扩展的设计门槛、可审计的结果对象与绩效指标，以及端到端示例与回归基准（任务 2–11）：买入并持有与均线策略在 7 天 `InMemoryDataPortal` 上产出确定的现金、持仓、成交、费用明细与净值曲线，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略、因子诊断、五个 CSV 表与 `PerformanceMetrics`，`save(dir)` / `load(dir)` 可重建。命令行与 CI 的后续任务（任务 12–13）按 [`TODO.md`](TODO.md) 顺序陆续落地。
+`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、公司行为扩展的设计门槛、可审计的结果对象与绩效指标、端到端示例与回归基准，以及 TOML 配置 + `hqbacktest run` CLI（任务 2–12）：买入并持有与均线策略在 7 天 `InMemoryDataPortal` 上产出确定的现金、持仓、成交、费用明细与净值曲线，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略、因子诊断、五个 CSV 表与 `PerformanceMetrics`，`save(dir)` / `load(dir)` 可重建，CLI 输出目录在两次相同输入下字节相同（去除 runtime 内存地址后）。CI（任务 13）覆盖 Python 3.10/3.11/3.12、black、`pytest`、`pytest-cov`、示例脚本与 CLI smoke，并产出可安装的 `sdist` + `wheel`。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
@@ -123,14 +124,15 @@ hqbacktest/
 
 数据集必须包含 `calendar.csv`，以及按交易日组织的 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv` 与 `stock_factor/{YYYYMMDD}.csv`。这些文件由 `hqdata` CLI 在回测前写入；hqbacktest 既不下载数据，也不保存凭证。任何真实 token、账户号或私密配置都**不应**提交到仓库，也不应出现在回测结果目录中。
 
-## 目标 Python 用法
+## Python 用法（已实现）
 
-> 策略与引擎部分（`BaseStrategy`、`Context`、`BacktestEngine.run()`）已实现，可在内存数据上执行；`adjustment_policy` 配置（任务 9）、`result.metrics` 与 `result.save`（任务 10）尚未提供。
+> 下面的代码就是 `examples/moving_average.py` 的简化版，可直接 `python -m hqbacktest run` 跑通（见 §命令行）。完整示例见 `examples/`。
 
 ```python
 from decimal import Decimal
 
-from hqbacktest import BacktestConfig, BacktestEngine, BaseStrategy
+from hqbacktest import BacktestConfig, BacktestEngine, BaseStrategy, EventType
+from hqbacktest.data import DataView
 
 
 class MovingAverageStrategy(BaseStrategy):
@@ -138,33 +140,27 @@ class MovingAverageStrategy(BaseStrategy):
 		context.set_universe(["600000.SH"])
 
 	def on_bar(self, context, data):
-		closes = data.history("600000.SH", field="close", bar_count=20)
-		if len(closes) < 20:
+		closes = data.history("600000.SH", field="close", bar_count=5)
+		if len(closes) < 5:
 			return
-
-		if sum(closes[-5:]) / 5 > sum(closes) / 20:
+		avg = sum(closes) / len(closes)
+		if closes[-1] > avg:
 			context.order_target_percent("600000.SH", Decimal("0.95"))
 		else:
-			context.order_target("600000.SH", target_quantity=0)
+			context.order_target("600000.SH", 0)
 
 
 config = BacktestConfig(
-	start_date="20200102",
-	end_date="20231229",
-	initial_cash="1000000",
-	data_root="~/.hqdata",
+	start_date="20240102",
+	end_date="20240110",
+	initial_cash="100000",
 	source="tushare",
-	# adjustment_policy="none",  # 任务 9 加入配置校验；v0.1 唯一合法值即 none
 )
 
-result = BacktestEngine(
-	config=config,
-	strategy=MovingAverageStrategy(),
-).run()
+result = BacktestEngine(config, strategy=MovingAverageStrategy()).run()
 
-# 任务 10：绩效指标与结果导出
-# print(result.metrics)
-# result.save("results/moving-average")
+print("total_return", result.metrics.total_return)
+result.save("results/moving-average")
 ```
 
 ### 策略回调与订单时点
@@ -178,17 +174,19 @@ result = BacktestEngine(
 
 这套顺序是避免未来函数的核心约束：策略不会在看到当天收盘价后又以当天开盘价成交。
 
-## 目标配置参数
+## 配置参数
 
 | 参数 | 示例 | 说明 |
 | --- | --- | --- |
-| `start_date` / `end_date` | `"20200102"` | 回测的包含式日期区间，格式为 `YYYYMMDD` |
-| `initial_cash` | `"1000000"` | 初始人民币现金；账本层将转换为精确金额类型 |
+| `start_date` / `end_date` | `"20240102"` | 回测的包含式日期区间，格式为 `YYYYMMDD` |
+| `initial_cash` | `"100000"` | 初始人民币现金；账本层将其作为 `Decimal` 字段使用 |
 | `data_root` | `"~/.hqdata"` | hqdata CSV 的根目录；可使用绝对路径覆盖 |
 | `source` | `"tushare"` | 本次运行唯一的数据源目录名，解析为 `{data_root}/{source}`；不能在一次回测中混用 |
 | `adjustment_policy` | `"none"` | v0.1 唯一合法值；精确公司行为会计完成并验证前，不支持因子总回报调整 |
-| `universe` | `["600000.SH"]` | 可由策略初始化或配置文件声明的目标股票池 |
+| `universe` | `["600000.SH"]` | 可由策略在 `initialize` 中声明的目标股票池 |
 | `cost_model` | 配置节 | 佣金、最低佣金、印花税和可选过户费；费率必须显式配置 |
+
+> 这张表是 v0.1 已实现的 `BacktestConfig` 字段。CLI 配置 TOML 用同名 key；CLI 还会接受 `--output` 覆盖 `[output].directory`。
 
 ## 命令行（任务 12 已实现）
 
@@ -218,6 +216,7 @@ initial_cash = "100000"        # Decimal 字符串，必填，>= 0
 
 [data]
 source = "tushare"             # 数据源名称或绝对路径，必填
+data_root = "~/.hqdata"        # 可选；默认 ~/.hqdata，指向 CSV 快照根目录
 
 [strategy]
 module = "examples.buy_and_hold"   # 可导入的 Python 模块，必填

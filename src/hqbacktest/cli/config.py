@@ -11,6 +11,7 @@ The TOML schema (one example):
 
     [data]
     source = "tushare"        # name or absolute path, required
+    data_root = "~/.hqdata"   # optional, defaults to ~/.hqdata
 
     [strategy]
     module = "examples.buy_and_hold"  # importable Python module, required
@@ -43,6 +44,7 @@ from typing import Any, Dict, List, Optional, Type
 
 import tomli
 
+from ..data.hqdata_portal import DEFAULT_DATA_ROOT
 from ..data.validators import validate_yyyymmdd
 from ..domain.enums import OrderType
 from ..engine.cost_model import DefaultCostModel
@@ -82,6 +84,7 @@ class ConfigFile:
     source: str
     strategy_module: str
     output_directory: str
+    data_root: str = DEFAULT_DATA_ROOT
     strategy_class: Optional[str] = None
     strategy_kwargs: Dict[str, Any] = field(default_factory=dict)
     cost_overrides: Dict[str, Decimal] = field(default_factory=dict)
@@ -156,6 +159,11 @@ def _validate(data: Dict[str, Any], *, raw_text: str) -> ConfigFile:
     if not isinstance(data_sec, dict):
         raise ConfigError("[data] must be a table")
     source = _require_str(data_sec, "data", "source")
+    data_root = data_sec.get("data_root")
+    if data_root is None:
+        data_root = DEFAULT_DATA_ROOT
+    elif not isinstance(data_root, str) or not data_root:
+        raise ConfigError("[data].data_root must be a non-empty string")
 
     # ---- [strategy] ----
     strat = data.get("strategy", {})
@@ -203,6 +211,7 @@ def _validate(data: Dict[str, Any], *, raw_text: str) -> ConfigFile:
         strategy_kwargs=strategy_kwargs,
         cost_overrides=cost_overrides,
         output_directory=output_directory,
+        data_root=data_root,
         raw_text=raw_text,
     )
 
@@ -333,6 +342,7 @@ def build_backtest_config(
         end_date=config_file.end_date,
         initial_cash=config_file.initial_cash,
         source=config_file.source,
+        data_root=config_file.data_root,
         rule_set=TradingRuleSet(DEFAULT_V01_RULES),
         cost_model=cost_model,
     )
