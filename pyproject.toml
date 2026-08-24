@@ -1,0 +1,88 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hqbacktest"
+version = "0.1.0"
+description = "A股量化策略回测与交易模拟引擎"
+readme = "README.md"
+authors = [
+  { name="HowieMen", email="howiemen@honestquant.com" },
+]
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = [
+  "hqbacktest",
+  "quant",
+  "quantitative",
+  "backtest",
+  "investment",
+  "algotrading",
+  "A股",
+  "trading-simulation",
+]
+
+# v0.1 task 2 skeleton: no runtime deps yet.
+# pandas / click / pydantic will be added when subsequent tasks need them.
+dependencies = [
+  "pandas>=2.0.0",
+  "tomli>=2.0",
+]
+
+[project.scripts]
+hqbacktest = "hqbacktest.cli.__main__:main"
+
+[project.urls]
+Homepage = "https://honestquant.com/hqbacktest"
+Source = "https://github.com/HonestQuantTech/hqbacktest"
+
+[project.optional-dependencies]
+# hqbacktest must NOT import Tushare / RiceQuant / AkShare SDKs directly.
+# These extras are reserved placeholders so users have a consistent way to
+# declare source-related optional deps; hqdata remains the only integration layer.
+tushare = []
+ricequant = []
+
+dev = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "black>=25.1.0",
+  "build>=1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["hqbacktest*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+  "integration: marks tests as integration tests against real hqdata sources (skipped by default)",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py310", "py311", "py312"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/hqbacktest"]
+# Only the `python -m hqbacktest` shim is omitted; it is a 4-line entry
+# point whose only body runs under `if __name__ == "__main__"` and is
+# exercised via subprocess (not measured by in-process coverage).
+# `cli/__main__.py` is real, tested business code and stays measured.
+omit = [
+  "src/hqbacktest/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 80
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+  "raise NotImplementedError",
+]

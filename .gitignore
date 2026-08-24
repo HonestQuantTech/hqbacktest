@@ -19,11 +19,11 @@ venv/
 # Package managers
 .poetry/
 .pdm.toml
- Hatch/
+Hatch/
 PDM/
 
 # Data files (local databases not committed)
-data/
+/data/
 *.csv
 *.parquet
 *.db
