@@ -138,9 +138,13 @@ class Order:
         price: Decimal,
         at: str,
     ) -> None:
-        """Record a single fill and update running aggregates."""
+        """Record a single fill and update running aggregates.
+
+        v0.1 always moves orders through ACCEPTED → PENDING before any
+        fill arrives, so the ACCEPTED branch in the status guard was
+        unreachable in practice (task 16).
+        """
         if self.status not in (
-            OrderStatus.ACCEPTED,
             OrderStatus.PENDING,
             OrderStatus.PARTIALLY_FILLED,
         ):

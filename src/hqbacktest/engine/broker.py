@@ -1,11 +1,11 @@
 """SimulatedBroker: market-on-open matching with rule set and cost model.
 
-Rules (task 7 + task 8):
+Rules (task 7 + task 8 + task 16):
     * Only `OrderType.MARKET` orders are supported; any other type is
       rejected by `Context` before reaching the broker.
     * The bar for `today` is read first: `MissingDataError` (suspended /
       no bar) becomes `bar_available=False` for the rule set, while
-      `InvalidDataError` and I/O errors propagate and abort the run.
+      `InvalidDataError` / I/O errors propagate and abort the run.
     * Each order then goes through `TradingRuleSet.first_denial`; the
       first denial short-circuits with a typed `RejectReason`.
     * Fees come from `CostModel.compute(order, price, quantity)`; the
@@ -14,6 +14,17 @@ Rules (task 7 + task 8):
     * Ledger-side rejections (`InsufficientCashError`,
       `InsufficientSharesError`) are produced by `Portfolio.apply_fill`
       and converted by the engine into typed rejections.
+
+Task 16 batch-matching order (A-share convention):
+    * Within a single `OPEN_MATCH(today)` batch, SELL orders match
+      **before** BUY orders. This mirrors "卖出资金当日可用": the
+      proceeds of a SELL can fund a same-batch BUY, so a rotation
+      ("卖旧买新") is not falsely rejected for INSUFFICIENT_CASH.
+    * The rule set's `InsufficientCashRule` checks against a rolling
+      `running_cash` that starts at `portfolio_cash`, increases by each
+      successful SELL's net proceeds, and decreases by each successful
+      BUY's cost. The ordering within each side (SELL-only or BUY-only)
+      preserves the strategy's submission order.
 """
 
 from decimal import Decimal
@@ -27,7 +38,7 @@ from ..data.portal import MarketDataPortal
 from ..domain.bar import Bar
 from ..domain.enums import EventType, OrderStatus, RejectReason, Side
 from ..domain.fill import Fill
-from ..domain.money import PRICE_QUANT
+from ..domain.money import PRICE_QUANT, quantize_cash
 from ..domain.order import Order
 from .cost_model import CostModel, DefaultCostModel
 from .rule_set import RuleCheckContext, TradingRuleSet
@@ -58,25 +69,50 @@ class SimulatedBroker:
 
         `sellable_quantity_for(symbol)` is a callable returning the current
         T+1 sellable shares for the symbol (0 if no position). It mirrors
-        the engine's view of the portfolio so the rule set stays pure.
+        the engine's view of the portfolio so the rule set stays pure;
+        the value is captured **before** the batch runs (T+1 state from
+        the previous day's settlement), and is not re-checked after each
+        SELL because a SELL only reduces `sellable_quantity`, so stale
+        values only over-estimate availability (fail-safe for the rule).
 
-        `portfolio_cash` is a snapshot taken before this batch: for later
-        orders in the same batch the rule-level cash check may be stale.
-        That is safe because `Portfolio.apply_fill` re-checks every fill
-        against the live ledger and is the final arbiter.
+        Task 16: orders are partitioned into SELLs and BUYs. All SELLs
+        match first (in submission order) so that their proceeds are
+        available to fund the subsequent BUYs (rolling cash). The
+        partition is a stable sort: the relative order within each side
+        is preserved, but cross-side order is normalized to
+        [SELLs..., BUYs...] as required by A-share convention.
+
+        Results are returned in **matching order** ([SELLs..., BUYs...]),
+        NOT submission order: the engine applies fills in the returned
+        order, so a BUY must be applied only after its funding SELL has
+        already credited the portfolio's cash. Re-assembling into
+        submission order would break the rolling-cash guarantee (a BUY
+        submitted before its funding SELL would be applied first and
+        falsely rejected for INSUFFICIENT_CASH).
         """
+        sell_orders = [o for o in orders if o.side is Side.SELL]
+        buy_orders = [o for o in orders if o.side is Side.BUY]
+        # Stable partition: preserve relative submission order within each
+        # side (the original `orders` list is already insertion-ordered).
+        ordered = sell_orders + buy_orders
+        running_cash = quantize_cash(portfolio_cash)
         results: List[MatchResult] = []
-        for order in orders:
-            results.append(
-                self._match_one(
-                    order,
-                    portal,
-                    today,
-                    rule_set,
-                    portfolio_cash,
-                    sellable_quantity_for(order.symbol),
-                )
+        for order in ordered:
+            match_result = self._match_one(
+                order,
+                portal,
+                today,
+                rule_set,
+                running_cash,
+                sellable_quantity_for(order.symbol),
             )
+            results.append(match_result)
+            # Roll cash: only successful fills update the running balance.
+            # `net_amount()` is already signed (SELL proceeds positive,
+            # BUY costs negative), so a single addition covers both sides.
+            _, fill, _, _ = match_result
+            if fill is not None:
+                running_cash = quantize_cash(running_cash + fill.net_amount())
         return results
 
     # ------------------------------------------------------------------ #

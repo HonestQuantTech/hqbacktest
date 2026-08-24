@@ -149,6 +149,19 @@ hqbacktest/
 
 性能冒烟测试在 `tests/data/test_task15_performance.py`，50 symbols × 250 days 全量 `history(bar_count=20)` 在 15 秒阈值内完成。
 
+### 撮合与账本口径（任务 16）
+
+- **同日撮合顺序：** 单个 `OPEN_MATCH(today)` batch 内**所有 SELL 先撮合、再撮合 BUY**（A 股「卖出资金当日可用」），同侧内保持策略提交顺序。资金检查用**滚动现金**而非撮合前快照。
+- **整手取整：** 仅 BUY 按 100 股整手向下取整；SELL 允许任意正整数股（含零股），静默截到整手违反契约。`order_target(symbol, 0)` 必须能清仓含零股的持仓。
+- **T+1 可卖不足：** 整单拒绝（`INSUFFICIENT_SHARES`），不支持部分截断。
+- **`realized_pnl` 不含费用**：仅 `(sell_price - avg_cost) × quantity`；费用（commission / stamp_tax / other_fee）只走现金账。
+- **金额量化：** 全部 `ROUND_HALF_EVEN`（`quantize_cash` 0.01 元 / `quantize_price` 0.0001 元），与券商「四舍五入到分」存在 1 分级差异。
+- **`Fill.BUY` 不携带 `stamp_tax`：** 印花税仅在 SELL 收取；`Fill.__post_init__` 拒绝 BUY 携带非零 stamp_tax 以保证账本与 costs 表一致。
+- **`intents.target_quantity_for_value(0)` 返回 0**（flatten），与 docstring 一致。
+- **CLI `initial_cash` 拒绝 float**（TOML 字面 `100000.0` 报错），与 `BacktestConfig` 严格度对齐（contract rule 5）。
+
+完整口径见 `docs/design/mvp-contract.md` §3.4。手算回归测试在 `tests/engine/test_task16_matching.py`。
+
 ## Python 用法（已实现）
 
 > 下面的代码就是 `examples/moving_average.py` 的简化版，可直接 `python -m hqbacktest run` 跑通（见 §命令行）。完整示例见 `examples/`。

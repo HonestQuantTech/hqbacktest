@@ -237,7 +237,16 @@ def _require_decimal(
     value = section[key]
     if isinstance(value, bool):
         raise ConfigError(f"[{section_name}].{key} must be a number, not bool")
-    if isinstance(value, (int, float, str)):
+    # Task 16: float is forbidden at the CLI layer too, matching the
+    # engine's contract rule 5. Without this check a TOML like
+    # `initial_cash = 100000.0` would silently convert to a Decimal via
+    # `Decimal(str(float))`, masking the precision concern.
+    if isinstance(value, float):
+        raise ConfigError(
+            f"[{section_name}].{key} must be int/str/Decimal; float is "
+            "forbidden (contract rule 5)"
+        )
+    if isinstance(value, (int, str)):
         try:
             d = Decimal(str(value))
         except Exception as exc:

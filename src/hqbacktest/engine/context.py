@@ -440,18 +440,27 @@ class Context:
         validate_symbol(symbol)
         if not is_positive(Decimal(quantity)):
             raise StrategyLifecycleError(f"quantity must be positive, got {quantity}")
-        lot_aligned = round_lot(quantity, lot_size=LOT_SIZE)
-        if lot_aligned == 0:
-            raise StrategyLifecycleError(
-                f"quantity {quantity} is below one lot of {LOT_SIZE} shares"
-            )
+        # Task 16: lot-alignment applies to BUY only. A-share rules allow
+        # odd-lot SELLs so positions holding non-lot quantities can be
+        # fully closed; round_lot() on a SELL would silently shrink
+        # the order (e.g. 150 -> 100), violating the contract that the
+        # broker sees the exact share count the strategy submitted.
+        if side is Side.BUY:
+            lot_aligned = round_lot(quantity, lot_size=LOT_SIZE)
+            if lot_aligned == 0:
+                raise StrategyLifecycleError(
+                    f"quantity {quantity} is below one lot of {LOT_SIZE} shares"
+                )
+            final_quantity = lot_aligned
+        else:
+            final_quantity = quantity
         # Guaranteed by _require_orderable in every public order method.
         created_session = self._phase
         order = Order(
             order_id=self._next_order_id(),
             symbol=symbol,
             side=side,
-            quantity=lot_aligned,
+            quantity=final_quantity,
             order_type=order_type,
             created_at=self._current_date,
             created_session=created_session,
@@ -468,7 +477,7 @@ class Context:
                 phase=EventType.ORDER_CREATED,
                 order_id=order.order_id,
                 detail=(
-                    f"{side.name} {lot_aligned} {symbol} "
+                    f"{side.name} {final_quantity} {symbol} "
                     f"(session={created_session.name})"
                 ),
             )
