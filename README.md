@@ -162,6 +162,16 @@ hqbacktest/
 
 完整口径见 `docs/design/mvp-contract.md` §3.4。手算回归测试在 `tests/engine/test_task16_matching.py`。
 
+### 净值与绩效指标口径（任务 17）
+
+- **首日 P&L 进入曲线：** `daily_return[0] = total_equity[0] / initial_cash - 1`、`drawdown[0] = (initial_cash - total_equity[0]) / initial_cash`，不再硬编码 0；**后续日回撤 running peak = `max(initial_cash, 历史 total_equity)`**（峰值序列以 `initial_cash` 为初始峰值）；满足恒等式 `∏(1 + daily_return) = 1 + total_return`（Decimal 精度内）。
+- **波动率样本不足返回 `None`：** `< 2` 个日收益时 `daily_volatility` / `annualized_volatility` / `sharpe_ratio` 返回 `None` 并附 note，禁止错报 0。真正 0 波动率才返回 `Decimal('0')`。
+- **幂运算桥接：** `(1 + total_return) ** (n / 252)` 通过 `Decimal(str(float(...)))` 重建为 Decimal，避免 `Decimal(float(...))` 直接继承二进制浮点。
+- **Decimal 量化：** 所有 `float` 桥接的 Decimal 输出统一 quantize 到 `Decimal('0.000000000001')`，保证 `summary.json` 干净。
+- **`positions.sellable_quantity` 口径：** **结转后**（D 行快照显示 D+1 起始时可卖数）。engine 在 `_snapshot_equity` 前调用 `settle_t1`，D 行的 `sellable_quantity` 已包含当日成交的滚动。
+
+完整口径见 `docs/design/mvp-contract.md` §3.5。手算回归测试在 `tests/engine/test_task17_metrics.py`。
+
 ## Python 用法（已实现）
 
 > 下面的代码就是 `examples/moving_average.py` 的简化版，可直接 `python -m hqbacktest run` 跑通（见 §命令行）。完整示例见 `examples/`。

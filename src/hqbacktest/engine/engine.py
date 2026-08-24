@@ -411,20 +411,36 @@ class BacktestEngine:
             prices[symbol] = fallback
         market_value = self._portfolio.market_value(prices)
         total_equity = self._portfolio.cash + market_value
+        # Task 17: anchor the first day's `daily_return` and the
+        # `drawdown` series to `initial_cash` (not a zero seed). A first-
+        # day P&L must flow into the equity curve so `∏(1 + r) == 1 +
+        # total_return` and `max_drawdown` can see day-1 drawdowns.
         prev_total = self._equity_curve[-1].total_equity if self._equity_curve else None
-        if prev_total is None or prev_total == 0:
+        if prev_total is None:
+            # First trading day: benchmark the return against initial_cash
+            # (task 17) so a first-day P&L flows into the return series.
+            daily_return = (
+                total_equity / self._config.initial_cash - Decimal("1")
+                if self._config.initial_cash > 0
+                else Decimal("0")
+            )
+        elif prev_total == 0:
+            # Defensive: a zero prior equity cannot produce a return ratio.
             daily_return = Decimal("0")
         else:
             daily_return = total_equity / prev_total - Decimal("1")
+        # Drawdown: the running peak must include `initial_cash`, otherwise
+        # a first-day loss is silently lost once a later day's equity stays
+        # below initial_cash but above the prior day's equity (task 17:
+        # "回撤峰值序列以 initial_cash 为初始峰值").
+        peak = self._config.initial_cash
         if self._equity_curve:
-            peak = max(pt.total_equity for pt in self._equity_curve)
-            drawdown = (
-                max(Decimal("0"), (peak - total_equity) / peak)
-                if peak > 0
-                else Decimal("0")
-            )
-        else:
-            drawdown = Decimal("0")
+            peak = max(peak, *(pt.total_equity for pt in self._equity_curve))
+        drawdown = (
+            max(Decimal("0"), (peak - total_equity) / peak)
+            if peak > 0
+            else Decimal("0")
+        )
         self._equity_curve.append(
             EquityPoint(
                 date=today,

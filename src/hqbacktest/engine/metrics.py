@@ -1,16 +1,36 @@
-"""Performance metrics (task 10).
+"""Performance metrics (task 10 + task 17).
 
 Formulas (all documented in README and contract doc):
     * `total_return`            = (final_equity / initial_equity) - 1
-    * `daily_return`            = equity[t] / equity[t-1] - 1   (simple)
-    * `annualized_return`       = (1 + total_return) ** (trading_days /
+    * `daily_return`            = equity[t] / equity[t-1] - 1   (t >= 1)
+                                  The engine anchors t=0 to `initial_cash`
+                                  so a first-day P&L flows into the
+                                  return series (task 17). The chained-
+                                  product identity
+                                  `∏(1 + daily_return) == 1 + total_return`
+                                  therefore holds for any run.
+    * `annualized_return`       = (1 + total_return) ** (n /
                                   annual_trading_days) - 1
-    * `daily_volatility`        = stdev(daily_returns)  (sample stddev; ddof=1)
+                                  The exponent is computed as `float`
+                                  then re-encoded as `Decimal(str(...))`
+                                  so the ledger never sees a Decimal
+                                  built directly from `float`.
+    * `daily_volatility`        = stdev(daily_returns[1:])  (sample, ddof=1)
+                                  `None` when fewer than 2 daily returns
+                                  are available (single-day run, or two
+                                  trading days with only one observed
+                                  return). Reports `0` only when the
+                                  series is genuinely flat.
     * `annualized_volatility`   = daily_volatility * sqrt(annual_trading_days)
+                                  `None` iff `daily_volatility is None`.
     * `sharpe_ratio`            = (annualized_return - risk_free_rate) /
                                   annualized_volatility
+                                  `None` whenever `annualized_volatility`
+                                  is `None` or zero (zero-volatility note).
     * `max_drawdown`            = max(peak - current) / peak over the
-                                  whole equity curve
+                                  whole equity curve. The peak sequence
+                                  starts at `initial_cash` so first-day
+                                  drawdowns contribute.
     * `turnover`                = (sum(buy value) + sum(sell value)) / 2 /
                                   initial_equity   (one-sided average)
     * `trade_count`             = number of `Fill` records
@@ -18,12 +38,14 @@ Formulas (all documented in README and contract doc):
                                   cost / total SELL fills; `None` if no
                                   SELL fills
 
-Edge cases (per task 10 verification "空回测 / 单日 / 零波动 / 全亏损 / 无交易"):
+Edge cases (per task 10/17 verification "空回测 / 单日 / 零波动 / 全亏损 /
+无交易 / 样本不足"):
     * `len(equity_curve) == 0` (empty run): all metrics 0 or `None`; notes
       record "no trading days".
     * `len(equity_curve) == 1` (single day): `total_return` is the only
       computable ratio; annualised / vol / sharpe are `None` and a note
       is added.
+    * `daily_volatility` requires >= 2 daily returns; otherwise `None`.
     * `daily_volatility == 0` (flat equity): `sharpe_ratio` is `None`; a
       note records the reason.
     * `no SELL fills`: `win_rate` is `None`.
@@ -42,6 +64,11 @@ from typing import List, Optional, Sequence, Tuple
 
 from ..domain.fill import Fill
 from ..domain.enums import Side
+
+# Quantization used when re-encoding `float` results as `Decimal`. 12
+# decimal places comfortably exceed the precision any real-data
+# metric reaches and keeps `summary.json` clean.
+_METRIC_QUANT = Decimal("0.000000000001")
 
 
 @dataclass(frozen=True)
@@ -135,7 +162,24 @@ def compute_metrics(
     initial_cash: Decimal,
     config: MetricsConfig,
 ) -> PerformanceMetrics:
-    """Compute all v0.1 metrics from an equity curve and the fill list."""
+    """Compute all v0.1 metrics from an equity curve and the fill list.
+
+    Task 17 invariants:
+        * `daily_return` is recomputed from `total_equity` via
+          `_daily_returns`, which anchors the first day's return to
+          `initial_cash` (engine writes the same value to the
+          `EquityPoint`). The chained-product identity therefore
+          holds regardless of how the engine seeded day 0.
+        * `daily_volatility` is `None` whenever fewer than 2 daily
+          returns are available (single-day run, or a two-day run that
+          has only one observed return). It is `0` only when the series
+          is genuinely flat — task 17 forbids returning `0` for
+          undefined statistics.
+        * All Decimal metrics that involve `float` arithmetic go
+          through `Decimal(str(...))` so the ledger never holds a
+          `Decimal` constructed directly from a binary float (contract
+          rule 5).
+    """
     notes: List[str] = []
     n_days = len(equity_curve)
     final_equity = equity_curve[-1].total_equity if n_days else initial_cash
@@ -159,23 +203,34 @@ def compute_metrics(
             annualized_return = None
             notes.append("annualized_return: total return <= -100%")
         else:
-            # Use float for the power operation; cast back to Decimal.
-            exponent = Decimal(n_days) / Decimal(config.annual_trading_days)
-            annualized_return = Decimal(float(growth) ** float(exponent)) - Decimal("1")
+            # Compute the power via float (Decimal has no built-in
+            # exponentiation), then re-encode through str() so the
+            # resulting Decimal never directly inherits binary-float
+            # bits. Quantize to a fixed precision so summary.json stays
+            # clean (task 17).
+            exponent = float(n_days) / float(config.annual_trading_days)
+            annualized_return = Decimal(str(float(growth) ** exponent)).quantize(
+                _METRIC_QUANT
+            ) - Decimal("1")
 
     # Daily volatility (per-day stdev) and its annualisation; Sharpe uses
-    # the annualised pair so the units match.
+    # the annualised pair so the units match. Task 17: insufficient
+    # samples (< 2 daily returns) returns `None`, not 0.
     returns = _daily_returns([pt.total_equity for pt in equity_curve])
     annualized_volatility: Optional[Decimal]
-    if n_days < 2:
-        daily_volatility = None
+    if len(returns) - 1 < 2:
+        # returns[0] is the seed (0); subsequent entries are the actual
+        # daily returns. < 2 means stdev cannot be computed.
+        daily_volatility: Optional[Decimal] = None
         annualized_volatility = None
-        sharpe_ratio = None
+        sharpe_ratio: Optional[Decimal] = None
         notes.append("daily_volatility: requires >= 2 daily returns")
     else:
         try:
             vol_per_day = Decimal(str(stdev([float(r) for r in returns[1:]])))
         except StatisticsError:
+            # All-zero series: stdev is undefined in `statistics` for
+            # 0-variance; treat as zero-volatility (a defined value).
             vol_per_day = Decimal("0")
         daily_volatility = vol_per_day
         if vol_per_day == 0:

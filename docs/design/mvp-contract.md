@@ -154,8 +154,8 @@
 
 | 维度 | v0.1 默认决定 |
 | --- | --- |
-| 同日撮合顺序 | 单个 `OPEN_MATCH(today)` batch 内**所有 SELL 先撮合、再撮合 BUY**（A 股「卖出资金当日可用」），同侧内保持策略提交顺序。 |
-| 资金检查 | `InsufficientCashRule` 用**滚动现金**（running_cash）逐单检查：SELL 净回款增加、BUY 成本扣除，拒绝后不滚动。 |
+| 同日撮合顺序 | 单个 `OPEN_MATCH(today)` batch 内**所有 SELL 先撮合、再撮合 BUY**（A 股「卖出资金当日可用」），同侧内保持策略提交顺序；`broker.match` 按此顺序返回结果以保证 `running_cash` 滚动检查生效。 |
+| 资金检查 | `InsufficientCashRule` 检查**滚动现金**（running_cash）：SELL 净回款增加、BUY 成本扣除，拒绝后不滚动。 |
 | 整手取整 | **仅 BUY** 按 100 股整手向下取整；SELL 允许任意正整数股（含零股），静默截到整手违反契约。 |
 | `order_target(symbol, 0)` | 必须能清仓含零股的持仓；`order(sym, -N)` 对任意正整数 N 提交原数量。 |
 | T+1 可卖不足 | **整单拒绝**（`RejectReason.INSUFFICIENT_SHARES`），不支持部分截断。 |
@@ -165,6 +165,18 @@
 | BUY 成交 `stamp_tax` | 必须为 0（印花税仅在 SELL 收取），`Fill.__post_init__` 校验拒绝非零。 |
 | `target_quantity_for_value(0)` | 返回 `0`（flatten），与 docstring 一致。 |
 | CLI `initial_cash` | 拒绝 `float`（TOML 字面 `100000.0` 报错），与引擎层 `BacktestConfig` 严格度对齐。 |
+
+### 3.5 净值与绩效指标口径（任务 17 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| 首日 `daily_return` | `total_equity[0] / initial_cash - 1`（**不再硬编码 0**），首日 P&L 进入收益序列。 |
+| 首日 `drawdown` | `(initial_cash - total_equity[0]) / initial_cash`（首日下跌时为正；不再硬编码 0）；**后续日 running peak = `max(initial_cash, 历史 total_equity)`**，首日跌幅进入回撤峰值序列。 |
+| 恒等式 | `∏(1 + daily_return) == 1 + total_return`（Decimal 精度内）。 |
+| 波动率样本不足 | `< 2` 个日收益时 `daily_volatility` / `annualized_volatility` / `sharpe_ratio` 返回 `None` + note（**禁止错报 0**）；真正 0 波动率才返回 `Decimal('0')`。 |
+| `annualized_return` 幂运算 | `float(growth) ** float(exponent)` 通过 `Decimal(str(...))` 重建为 Decimal，**禁止 `Decimal(float(...))`**。 |
+| Decimal 量化 | 所有 `float` 桥接的 Decimal 输出统一 quantize 到 `Decimal('0.000000000001')`，保证 `summary.json` 干净。 |
+| `positions.sellable_quantity` | **结转后**（D 行快照为 D+1 起始时可卖数）；engine 在 `_snapshot_equity` 前调用 `settle_t1`，D 行的 `sellable_quantity` 即已包含当日成交的滚动。 |
 
 ## 6. 不可变规则
 
@@ -217,3 +229,4 @@
 | 2026-08-23 | v0.1 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录污染 | hqbacktest 维护者 |
 | 2026-08-24 | v0.1 | 任务 14 数据层缺行/停牌/首日语义：钉死 `get_bars` 允许间隙、引入 `SnapshotFileMissingError` 区分整日文件缺失与个股缺行、`current_price` 回看 20 交易日最近有效收盘价、首日哨兵日期不抛异常、删除 `InMemoryDataPortal.get_universe` 向前回退、补双门户 parity 测试、缓存返回防御性拷贝、`.BJ` 股票默认过滤、`Bar.volume` 单位标注为「手」 | hqbacktest 维护者 |
 | 2026-08-24 | v0.1 | 任务 16 撮合与账本语义：同批撮合 SELL 先于 BUY（滚动现金）、SELL 不整手取整（`order_target(0)` 可清零股）、`Fill.BUY` 携带非零 stamp_tax 报错、`Order.record_fill` 移除不可达 `ACCEPTED` 分支、`intents.target_quantity_for_value(0)` 按 docstring 返回 0、CLI `initial_cash` 拒绝 float 与引擎对齐、`realized_pnl` 不含费用修正旧注释；登记 §3.4 撮合口径表 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 17 净值与指标基准：首日 `daily_return` / `drawdown` 以 `initial_cash` 为基准（不再硬编码 0）、波动率样本不足返回 `None` 而非 0、`Decimal(str(float(...)))` 替代 `Decimal(float(...))` 幂运算桥接、`positions.sellable_quantity` 口径登记为「结转后」；恒等式 `∏(1 + daily_return) = 1 + total_return` 成立；登记 §3.5 | hqbacktest 维护者 |
