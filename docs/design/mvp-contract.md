@@ -138,6 +138,18 @@
 - `data portal` 通过 `data_root` 与 `source` 解析数据集根目录。v0.1 的固定布局为 `{root}/{source}/calendar.csv`，以及 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv`、`stock_factor/{YYYYMMDD}.csv`；任何缺失、不可读或格式不符的文件必须报错，不得联网回补。
 - hqdata CSV 快照是叶子数据边界；更新数据只能在回测运行前通过 hqdata CLI 完成。
 
+### 3.3 数据可见性与缺行语义（任务 14 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| `get_bars(symbol, start, end)` | 返回窗口内实际存在的行，**允许逐日间隙**；窗口内无任何行返回 `[]` 而非报错。 |
+| `get_bar(symbol, date)` 失败分类 | 个股当日缺行（停牌 / 未上市 / 已退市） → 返回「无当日行情」的空结果；**整日快照文件缺失** → `SnapshotFileMissingError`（`MissingDataError` 子类），引擎不得当作「该股无价」处理。 |
+| `current_price(symbol)` | 返回截至 `visible_through` 的最近一个有效收盘价，**回看上限 20 个交易日**，超出返回 `None`；停牌持仓按最近收盘估值并记录 `DATA_WARNING` 事件，禁止静默按 0 计入。 |
+| 首个交易日盘前（`visible_through="00000000"`） | `history` 返回 `[]`、`current_price` 返回 `None`，**不抛异常**。 |
+| `get_universe(date)` | **按精确日期查询**，不做向前回退；`.BJ`（北交所）股票默认过滤，可通过 `include_bj=True` 保留。 |
+| `Bar.volume` 单位 | **手**（1 手 = 100 股；与 Tushare `hqdata` 适配器口径一致）；调用方需要股数时应乘以 `LOT_SIZE`。 |
+| 双门户一致性 | `InMemoryDataPortal` 与 `HqDataCsvPortal` 行为完全一致（parity 测试覆盖）。 |
+
 ## 6. 不可变规则
 
 以下 13 条规则在 v0.1 期间**不允许任何代码绕过**；新增能力时若必须突破某条，必须先在本文档登记例外并同步 README。
@@ -187,3 +199,4 @@
 | 2026-08-17 | v0.1（已被后续修订取代） | 曾将 `source` 交给 `hqdata` 解析；该 API 驱动的数据边界已在 2026-08-23 被 CSV 快照契约取代 | hqbacktest 维护者 |
 | 2026-08-23 | v0.1 | 修正回测运行时数据边界：`hqbacktest` 直接只读 hqdata CLI 落盘 CSV；`data_root` 默认 `~/.hqdata`，不调用 `hqdata.api` 或网络数据源 | hqbacktest 维护者 |
 | 2026-08-23 | v0.1 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录污染 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 14 数据层缺行/停牌/首日语义：钉死 `get_bars` 允许间隙、引入 `SnapshotFileMissingError` 区分整日文件缺失与个股缺行、`current_price` 回看 20 交易日最近有效收盘价、首日哨兵日期不抛异常、删除 `InMemoryDataPortal.get_universe` 向前回退、补双门户 parity 测试、缓存返回防御性拷贝、`.BJ` 股票默认过滤、`Bar.volume` 单位标注为「手」 | hqbacktest 维护者 |

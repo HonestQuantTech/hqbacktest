@@ -10,7 +10,14 @@ from .money import NumberLike, quantize_price
 class Bar:
     """A single trading day's bar for a single symbol.
 
-    All prices are unadjusted (contract §3.1). OHLC and volume are immutable.
+    All prices are unadjusted (contract §3.1). OHLC and volume are
+    immutable.
+
+    `volume` is the day's traded volume expressed in **lots (手)** — the
+    unit used by the upstream Tushare `hqdata` adapter. 1 lot = 100
+    shares for both Shanghai and Shenzhen. Callers that need shares must
+    multiply by `LOT_SIZE` (see `domain.money`). Strategies that compare
+    volumes across symbols MUST do so on this same lot basis.
     """
 
     symbol: str
@@ -19,7 +26,7 @@ class Bar:
     high: Decimal
     low: Decimal
     close: Decimal
-    volume: int
+    volume: int  # 单位：手 (1 手 = 100 股)
 
     def __post_init__(self) -> None:
         if not self.symbol or not isinstance(self.symbol, str):

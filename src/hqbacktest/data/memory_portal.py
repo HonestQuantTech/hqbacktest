@@ -12,8 +12,7 @@ from decimal import Decimal
 from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
 
 from ..domain.bar import Bar
-from ..domain.enums import EventType
-from .errors import InvalidDataError, MissingDataError
+from .errors import InvalidDataError, MissingDataError, SnapshotFileMissingError
 from .portal import DataVersion, MarketDataPortal
 from .validators import (
     assert_unique_sorted,
@@ -149,6 +148,8 @@ class InMemoryDataPortal(MarketDataPortal):
             raise InvalidDataError("window", f"start {start} > end {end}")
         idx_start = bisect_left(self.calendar, start)
         idx_end = bisect_right(self.calendar, end)
+        # Return a defensive copy; mutating it must never corrupt the
+        # portal's internal state.
         return list(self.calendar[idx_start:idx_end])
 
     def is_trading_day(self, date: str) -> bool:
@@ -169,30 +170,40 @@ class InMemoryDataPortal(MarketDataPortal):
             raise MissingDataError("next trading day", f"no day after {date}")
         return self.calendar[idx]
 
-    def get_universe(self, date: str) -> List[str]:
+    def get_universe(self, date: str, include_bj: bool = False) -> List[str]:
         validate_yyyymmdd(date)
         if date not in self.universe_by_date:
-            # Convention: walk back to the most recent universe snapshot <= date.
-            for snapshot_date in sorted(self.universe_by_date.keys(), reverse=True):
-                if snapshot_date <= date:
-                    return sorted(self.universe_by_date[snapshot_date])
-            raise MissingDataError("universe", f"no universe on or before {date}")
-        return sorted(self.universe_by_date[date])
+            # Match the production CSV portal: a missing whole-day stock-list
+            # snapshot is an infrastructure failure (SnapshotFileMissingError),
+            # not a per-symbol gap. This keeps the two portals' exception
+            # types identical for the same fixture (task 14 parity).
+            raise SnapshotFileMissingError(
+                "stock_list", f"<memory>/stock_list/{date}.csv"
+            )
+        snapshot = sorted(self.universe_by_date[date])
+        if include_bj:
+            return snapshot
+        return [sym for sym in snapshot if not sym.endswith(".BJ")]
 
     def get_bars(self, symbol: str, start: str, end: str) -> List[Bar]:
+        """Return bars in [start, end], allowing per-day gaps.
+
+        An empty result (the symbol did not trade at all in the window, or
+        the window has no trading days) is returned as `[]` rather than
+        raising. This matches the production `HqDataCsvPortal` semantics
+        introduced in task 14.
+        """
         bars = self._bars_in_window(symbol, start, end)
-        if not bars:
-            raise MissingDataError("bars", f"no bars for {symbol} in [{start}, {end}]")
         return list(bars)
 
     def get_factor(
         self, symbol: str, start: str, end: str
     ) -> List[Tuple[str, Decimal]]:
+        """Return (date, factor) tuples in [start, end], allowing gaps.
+
+        Empty result is `[]`, not an error, matching the CSV portal.
+        """
         rows = self._factors_in_window(symbol, start, end)
-        if not rows:
-            raise MissingDataError(
-                "factor", f"no factor for {symbol} in [{start}, {end}]"
-            )
         return list(rows)
 
     def calendar_set(self) -> set:

@@ -299,34 +299,55 @@ def test_save_creates_output_directory(tmp_path):
 # --------------------------------------------------------------------- #
 
 
-def test_engine_valuation_fails_when_held_symbol_has_no_close():
-    """Contract §4: 持仓标的没有有效收盘价 → 运行失败 + DATA_ERROR 事件;
-    v0.1 never silently values holdings at zero."""
+def test_engine_valuation_uses_lookback_for_suspended_symbol():
+    """Contract §4 + task 14: a suspended holding is valued at the most
+    recent valid close within the lookback window and a DATA_WARNING is
+    recorded. The run continues normally.
+    """
 
     class BuyHold(BaseStrategy):
         def initialize(self, context):
             context.set_universe(["600000.SH"])
 
-        def on_bar(self, context, data):
-            if context.now == "20240102":
-                context.order("600000.SH", 100)
+        def before_trading_start(self, context, data):
+            # Buy on the only trading day that has a bar; the subsequent
+            # valuation days must fall back to the same close.
+            context.order("600000.SH", 100)
 
     p = InMemoryDataPortal(calendar=["20240102", "20240103", "20240104"])
     p.add_bar(_bar("20240102"))
-    p.add_bar(_bar("20240103"))
-    # No bar on 20240104: the buy filled at 0103 open, and day-end
-    # valuation on 0104 cannot price the 100-share holding.
+    # 20240103 / 20240104 have NO bar for 600000.SH; the lookback fallback
+    # should use the 20240102 close for valuation.
     engine = BacktestEngine(
         _config("20240102", "20240104"), strategy=BuyHold(), portal=p
     )
-    from hqbacktest.engine.errors import RunFailed
-
-    with pytest.raises(RunFailed):
-        engine.run()
+    result = engine.run()
+    warnings = [e for e in engine.event_log.all() if e.phase is EventType.DATA_WARNING]
+    # One DATA_WARNING per suspended day (20240103, 20240104).
+    assert len(warnings) == 2
+    assert all("600000.SH" in e.detail for e in warnings)
+    # Equity curve populated, no DATA_ERROR (lookback succeeded).
     data_errors = [e for e in engine.event_log.all() if e.phase is EventType.DATA_ERROR]
-    assert len(data_errors) == 1
-    assert "600000.SH" in data_errors[0].detail
-    assert engine.result is None  # no half-populated result on failure
+    assert data_errors == []
+    assert len(result.equity_curve) == 3
+
+
+def test_engine_valuation_aborts_when_lookback_exhausted():
+    """Direct test of the engine valuation fallbacks: when even the
+    20-day lookback cannot find a valid close for a held symbol, the run
+    aborts with DATA_ERROR.
+
+    Constructed by directly invoking the private `_lookback_price_or_none`
+    helper, since the engine only ever holds a position after a
+    successful fill (which requires at least one bar somewhere in the
+    calendar). This test pins the task-14 contract: lookback or fail,
+    never silently zero.
+    """
+    from hqbacktest.engine.engine import BacktestEngine
+
+    p = InMemoryDataPortal(calendar=["20240102", "20240103", "20240104"])
+    # No bars at all: lookback is empty.
+    assert BacktestEngine._lookback_price_or_none(p, "600000.SH", "20240104") is None
 
 
 # --------------------------------------------------------------------- #

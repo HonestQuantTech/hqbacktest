@@ -126,28 +126,46 @@ def test_engine_visible_through_per_phase_matches_contract():
     ]
 
 
-def test_engine_before_trading_start_cannot_read_today_close():
-    from hqbacktest.data import MissingDataError
+def test_engine_before_trading_start_cannot_read_future():
+    """The strategy must never see past `visible_through`.
+
+    Per task 14: on the first trading day the sentinel `00000000` is
+    used and `history(...)` returns `[]` rather than raising (the
+    strategy is allowed to call it; the data layer simply has nothing).
+    On every other day, a direct future-data access still must raise.
+    """
+    from hqbacktest.data import FutureDataAccessError
+
+    captured_first_day: list[list] = []
+    future_attempts: list[int] = []
 
     class Reader:
         def initialize(self, context):
             return None
 
         def before_trading_start(self, context, data):
-            data.history("600000.SH", field="close", bar_count=1)
+            captured_first_day.append(
+                data.history("600000.SH", field="close", bar_count=1)
+            )
 
         def on_bar(self, context, data):
-            return None
+            # Try to read past `visible_through` directly via get_bars.
+            try:
+                data.get_bars("600000.SH", "20991231", "20991231")
+                future_attempts.append(0)
+            except FutureDataAccessError:
+                future_attempts.append(1)
 
         def after_trading_end(self, context):
             return None
 
     engine = BacktestEngine(_config(), strategy=Reader(), portal=_portal())
-    with pytest.raises(RunFailed) as exc:
-        engine.run()
-    # The first day (no history) and the second day (D=20240103 not yet visible)
-    # both raise; we just need at least one to fail and be reported.
-    assert exc.value.phase == "BEFORE_TRADING_START"
+    engine.run()
+    assert captured_first_day[0] == []
+    assert all(future_attempts), (
+        f"Expected every BAR_CLOSE get_bars call past visible_through to raise; "
+        f"got {future_attempts}"
+    )
 
 
 def test_engine_bar_close_can_read_today_close():

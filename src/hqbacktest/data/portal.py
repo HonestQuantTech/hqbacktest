@@ -47,8 +47,16 @@ class MarketDataPortal(Protocol):
         """Return the trading day strictly after `date`, or raise."""
         ...
 
-    def get_universe(self, date: str) -> List[str]:
-        """Historical stock list as of `date` (per contract §3.1)."""
+    def get_universe(self, date: str, include_bj: bool = False) -> List[str]:
+        """Historical stock list as of `date` (per contract §3.1).
+
+        `include_bj=False` (the default) excludes Beijing Stock Exchange
+        (`.BJ`) symbols, which are not supported in v0.1 (no first-day
+        limit-up/down rule, distinct trading calendar, etc.). Pass
+        `include_bj=True` to opt in; the engine still treats `.BJ` symbols
+        as ordinary stocks from a data-layer perspective, but the broker
+        and rule set do not yet enforce BSE-specific rules.
+        """
         ...
 
     def get_bars(self, symbol: str, start: str, end: str) -> List["Bar"]:

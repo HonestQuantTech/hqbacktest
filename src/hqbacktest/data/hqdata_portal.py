@@ -30,6 +30,7 @@ from .cache import CacheKey, DataCache
 from .errors import (
     InvalidDataError,
     MissingDataError,
+    SnapshotFileMissingError,
     UnknownSymbolError,
 )
 from .portal import DataVersion, MarketDataPortal
@@ -109,9 +110,18 @@ class HqDataCsvPortal(MarketDataPortal):
         return self._cache
 
     def _resolve_as_of(self) -> str:
+        """Pick the snapshot's `as_of` from the calendar.
+
+        `MissingDataError` (no calendar.csv at all) is treated as "snapshot
+        empty": fall back to today's date so the engine can still publish a
+        `data_version`. `InvalidDataError` (calendar exists but is corrupt)
+        is a real data infrastructure failure and MUST propagate; silently
+        masking it with `_date.today()` would let the engine believe the
+        snapshot is healthy when it is not.
+        """
         try:
             calendar = self._read_calendar()
-        except (MissingDataError, InvalidDataError):
+        except MissingDataError:
             return _date.today().strftime("%Y%m%d")
         opens = [d for d, is_open in calendar if is_open == "Y"]
         if opens:
@@ -166,11 +176,11 @@ class HqDataCsvPortal(MarketDataPortal):
         )
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            return list(cached)
         calendar = self._read_calendar()
         result = [d for d, flag in calendar if flag == "Y" and start <= d <= end]
-        self._cache.put(cache_key, result)
-        return result
+        self._cache.put(cache_key, list(result))
+        return list(result)
 
     def is_trading_day(self, d: str) -> bool:
         validate_yyyymmdd(d)
@@ -207,46 +217,71 @@ class HqDataCsvPortal(MarketDataPortal):
     # Universe
     # ------------------------------------------------------------------ #
 
-    def get_universe(self, date: str) -> List[str]:
+    def get_universe(self, date: str, include_bj: bool = False) -> List[str]:
+        """Return the historical stock list as of `date`.
+
+        Per task 14: `.BJ` (Beijing Stock Exchange) symbols are excluded by
+        default since v0.1 does not yet support BSE-specific trading rules
+        (no first-day limit-up/down, distinct trading calendar, etc.).
+        Pass `include_bj=True` to opt in.
+        """
         validate_yyyymmdd(date)
         cache_key = CacheKey(
             self._data_root, self._source_name, "universe", "", "", date, date
         )
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
-        path = self._root_path / "stock_list" / f"{date}.csv"
-        if not path.exists():
-            raise MissingDataError(
-                "stock_list snapshot",
-                f"no snapshot for {date} at {path}",
-            )
-        try:
-            df = pd.read_csv(path, dtype={"symbol": str, "date": str})
-        except Exception as exc:
-            raise InvalidDataError(
-                "stock_list",
-                f"failed to read {path}: {exc}",
-            ) from exc
-        require_columns(df, ["symbol", "date"], name="stock_list")
-        # Filename date and CSV date column must agree.
-        file_dates = {validate_yyyymmdd(v) for v in df["date"].tolist()}
-        if file_dates != {date}:
-            raise InvalidDataError(
-                "stock_list.date",
-                f"CSV date(s) {file_dates} do not match filename {date}",
-            )
-        symbols = [validate_symbol(v) for v in df["symbol"].tolist()]
-        assert_unique_sorted(sorted(symbols), name="stock_list symbols")
-        symbols.sort()
-        self._cache.put(cache_key, symbols)
-        return symbols
+            full = list(cached)
+        else:
+            path = self._root_path / "stock_list" / f"{date}.csv"
+            if not path.exists():
+                raise SnapshotFileMissingError("stock_list", str(path))
+            try:
+                df = pd.read_csv(path, dtype={"symbol": str, "date": str})
+            except Exception as exc:
+                raise InvalidDataError(
+                    "stock_list",
+                    f"failed to read {path}: {exc}",
+                ) from exc
+            require_columns(df, ["symbol", "date"], name="stock_list")
+            # Filename date and CSV date column must agree.
+            file_dates = {validate_yyyymmdd(v) for v in df["date"].tolist()}
+            if file_dates != {date}:
+                raise InvalidDataError(
+                    "stock_list.date",
+                    f"CSV date(s) {file_dates} do not match filename {date}",
+                )
+            symbols = [validate_symbol(v) for v in df["symbol"].tolist()]
+            assert_unique_sorted(sorted(symbols), name="stock_list symbols")
+            symbols.sort()
+            self._cache.put(cache_key, list(symbols))
+            full = list(symbols)
+        if include_bj:
+            return full
+        return [sym for sym in full if not sym.endswith(".BJ")]
 
     # ------------------------------------------------------------------ #
     # Bars
     # ------------------------------------------------------------------ #
 
     def get_bars(self, symbol: str, start: str, end: str) -> List[Bar]:
+        """Return bars for `symbol` in [start, end], **allowing per-day gaps**.
+
+        Per-suspension / pre-IPO / post-delisting semantics (task 14):
+            - The window is intersected with the trading calendar; days
+              inside the window with no row for `symbol` are simply absent
+              from the result.
+            - An empty result is a legitimate business outcome (the symbol
+              did not trade at all in this window) and is returned as `[]`.
+              It is NOT an error.
+            - Whole-day snapshot files missing from disk are an
+              **infrastructure** failure and must raise
+              `SnapshotFileMissingError` so the engine can abort the run
+              with a clear `DATA_ERROR` rather than silently fold the
+              failure into a per-symbol gap.
+            - Calendar queries that return no trading days still raise
+              `MissingDataError` (caller asked for an empty window).
+        """
         validate_symbol(symbol)
         validate_yyyymmdd(start, name="start")
         validate_yyyymmdd(end, name="end")
@@ -257,43 +292,44 @@ class HqDataCsvPortal(MarketDataPortal):
         )
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            return list(cached)
         calendar = self.get_calendar(start, end)
         if not calendar:
             raise MissingDataError("calendar", f"no trading days in [{start}, {end}]")
         bars: List[Bar] = []
         for trading_day in calendar:
-            try:
-                day_bars = self._read_bars_for_day(symbol, trading_day)
-            except MissingDataError:
-                # No daily file for this symbol on this trading day:
-                # contract §3.1 "交易日覆盖范围" + task 4 validation.
-                raise MissingDataError(
-                    "bars",
-                    f"no bars for {symbol} on trading day {trading_day}",
-                )
+            day_bars = self._read_bars_for_day(symbol, trading_day)
             bars.extend(day_bars)
-        if not bars:
-            raise MissingDataError("bars", f"no bars for {symbol} in [{start}, {end}]")
-        # Universe membership + per-row symbol sanity.
+        # Universe membership + per-row symbol sanity (defensive: a snapshot
+        # should never claim a different symbol, but if it does we want the
+        # error rather than a silent leak into the engine).
         for bar in bars:
             if bar.symbol != symbol:
                 raise UnknownSymbolError(
                     f"CSV returned symbol {bar.symbol!r} when {symbol!r} was requested"
                 )
-        # All bars must land on calendar trading days (already enforced above
-        # by iterating the calendar) and the requested symbol must be present
-        # for every trading day.
-        self._cache.put(cache_key, bars)
-        return bars
+        # Empty result is legal; cache and return a defensive copy.
+        self._cache.put(cache_key, list(bars))
+        return list(bars)
 
     def _read_bars_for_day(self, symbol: str, date: str) -> List[Bar]:
+        """Read the bars for one (symbol, day).
+
+        Distinct failure modes (task 14):
+            - `stock_daily/{date}.csv` is missing entirely
+              -> `SnapshotFileMissingError` (data infrastructure failure).
+            - The file exists but has no row for `symbol` (suspended,
+              delisted, not yet listed)
+              -> `[]`; this is a per-symbol gap and is a normal business
+              outcome, NOT an error.
+            - The file exists but is corrupt (missing column, bad decimal,
+              symbol-row count mismatch, Bar invariants violated)
+              -> `InvalidDataError`; the engine aborts the run via the
+              caller's RunFailed wrapping.
+        """
         path = self._root_path / "stock_daily" / f"{date}.csv"
         if not path.exists():
-            raise MissingDataError(
-                "stock_daily snapshot",
-                f"no snapshot for {date} at {path}",
-            )
+            raise SnapshotFileMissingError("stock_daily", str(path))
         try:
             df = pd.read_csv(
                 path,
@@ -318,13 +354,17 @@ class HqDataCsvPortal(MarketDataPortal):
             name="stock_daily",
         )
         # Filename date and CSV date column must agree.
-        file_dates = {validate_yyyymmdd(v) for v in df["date"].tolist()}
+        try:
+            file_dates = {validate_yyyymmdd(v) for v in df["date"].tolist()}
+        except InvalidDataError as exc:
+            raise InvalidDataError("stock_daily.date", f"{path}: {exc}") from exc
         if file_dates != {date}:
             raise InvalidDataError(
                 "stock_daily.date",
                 f"CSV date(s) {file_dates} do not match filename {date}",
             )
-        # Filter to the requested symbol; all remaining rows must match.
+        # Filter to the requested symbol; if no row matches it is a per-
+        # symbol gap (suspended / delisted / pre-IPO), NOT an error.
         rows = df[df["symbol"] == symbol]
         if len(rows) > 1:
             raise InvalidDataError(
@@ -333,23 +373,26 @@ class HqDataCsvPortal(MarketDataPortal):
             )
         out: List[Bar] = []
         for _, row in rows.iterrows():
-            # Read price text directly from CSV before creating Decimal values.
-            out.append(
-                Bar.from_raw(
-                    symbol=str(row["symbol"]),
-                    date=str(row["date"]),
-                    open=str(row["open"]),
-                    high=str(row["high"]),
-                    low=str(row["low"]),
-                    close=str(row["close"]),
-                    volume=int(row["volume"]),
+            try:
+                out.append(
+                    Bar.from_raw(
+                        symbol=str(row["symbol"]),
+                        date=str(row["date"]),
+                        open=str(row["open"]),
+                        high=str(row["high"]),
+                        low=str(row["low"]),
+                        close=str(row["close"]),
+                        volume=int(row["volume"]),
+                    )
                 )
-            )
-        if not out:
-            raise MissingDataError(
-                "bars",
-                f"symbol {symbol!r} missing from {path}",
-            )
+            except (ValueError, TypeError) as exc:
+                # Bar invariants violated; wrap with file/line context so
+                # the audit trail pinpoints the bad row.
+                raise InvalidDataError(
+                    "stock_daily",
+                    f"{path}: malformed row for {row.get('symbol', '?')} "
+                    f"on {row.get('date', '?')}: {exc}",
+                ) from exc
         return out
 
     # ------------------------------------------------------------------ #
@@ -359,6 +402,12 @@ class HqDataCsvPortal(MarketDataPortal):
     def get_factor(
         self, symbol: str, start: str, end: str
     ) -> List[Tuple[str, Decimal]]:
+        """Return (date, factor) tuples for `symbol` in [start, end].
+
+        Same gap semantics as `get_bars`: a per-symbol absence on a trading
+        day simply omits that day from the result, while a missing whole-day
+        factor file raises `SnapshotFileMissingError`.
+        """
         validate_symbol(symbol)
         validate_yyyymmdd(start, name="start")
         validate_yyyymmdd(end, name="end")
@@ -369,7 +418,7 @@ class HqDataCsvPortal(MarketDataPortal):
         )
         cached = self._cache.get(cache_key)
         if cached is not None:
-            return cached
+            return list(cached)
         calendar = self.get_calendar(start, end)
         if not calendar:
             raise MissingDataError("factor", f"no trading days in [{start}, {end}]")
@@ -377,10 +426,7 @@ class HqDataCsvPortal(MarketDataPortal):
         for trading_day in calendar:
             path = self._root_path / "stock_factor" / f"{trading_day}.csv"
             if not path.exists():
-                raise MissingDataError(
-                    "stock_factor snapshot",
-                    f"no snapshot for {trading_day} at {path}",
-                )
+                raise SnapshotFileMissingError("stock_factor", str(path))
             try:
                 df = pd.read_csv(
                     path, dtype={"symbol": str, "date": str, "factor": str}
@@ -399,10 +445,8 @@ class HqDataCsvPortal(MarketDataPortal):
                 )
             symbol_rows = df[df["symbol"] == symbol]
             if symbol_rows.empty:
-                raise MissingDataError(
-                    "factor",
-                    f"symbol {symbol!r} missing from {path}",
-                )
+                # Per-symbol gap; this is a normal business outcome.
+                continue
             if len(symbol_rows) != 1:
                 raise InvalidDataError(
                     "factor",
@@ -428,5 +472,5 @@ class HqDataCsvPortal(MarketDataPortal):
                     f"non-positive or non-finite factor: {factor}",
                 )
             rows.append((row_date, factor))
-        self._cache.put(cache_key, rows)
-        return rows
+        self._cache.put(cache_key, list(rows))
+        return list(rows)

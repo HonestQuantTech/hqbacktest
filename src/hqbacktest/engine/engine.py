@@ -27,7 +27,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from ..data.data_view import DataView
-from ..data.errors import MissingDataError
+from ..data.errors import MissingDataError, SnapshotFileMissingError
 from ..data.hqdata_portal import HqDataCsvPortal, resolve_source_location
 from ..data.portal import MarketDataPortal
 from ..domain.enums import EventType, OrderStatus, RejectReason
@@ -48,12 +48,26 @@ from .errors import (
     RunFailed,
     StrategyLifecycleError,
 )
+from ..data.data_view import CURRENT_PRICE_LOOKBACK
 from .events import EngineEvent, EventLog
 from .iterator import TradingDayIterator
 from .metrics import EquityPoint, compute_metrics
 from .result import BacktestResult
 from .scheduler import run_day
 from .strategy import NullStrategy, Strategy
+
+
+def _lookback_start_date(today: str) -> str:
+    """Compute the lookback-window start date for valuation fallbacks.
+
+    Mirrors `DataView._trading_day_lookback_start`: a generous 5-year
+    window that comfortably covers `CURRENT_PRICE_LOOKBACK` trading days
+    without forcing the portal to scan the full pre-start history.
+    """
+    yyyymmdd = int(today)
+    year = yyyymmdd // 10000
+    start_year = max(year - 5, 1900)
+    return f"{start_year}0101"
 
 
 class BacktestEngine:
@@ -339,17 +353,32 @@ class BacktestEngine:
     def _snapshot_equity(self, today: str, portal: MarketDataPortal) -> None:
         """Record one EquityPoint using today's close for market value.
 
-        Contract §4: day-end valuation uses D's valid unadjusted close. If a
-        HELD symbol has no valid close (missing bar, or close <= 0), the run
-        FAILS with a DATA_ERROR event — v0.1 never silently skips valuation,
-        never uses previous closes, and never values holdings at zero.
+        Contract §4 + task 14 valuation semantics:
+            * Preferred source: today's valid unadjusted close (D's bar).
+            * Fallback: when the held symbol has no bar on `today`
+              (suspended / delisted / pre-IPO), use the most recent valid
+              close from the same `current_price` lookback window and
+              record a `DATA_WARNING` event so the audit trail reflects
+              the deviation. The fallback is bounded by
+              `DataView.CURRENT_PRICE_LOOKBACK` (20) trading days.
+            * If neither today's close nor any lookback close is
+              available, the run FAILS with `DATA_ERROR` — v0.1 never
+              values holdings at zero and never silently drops a holding.
         """
         prices: Dict[str, Decimal] = {}
         for symbol, position in self._portfolio.positions.items():
             if position.quantity == 0:
                 continue
-            close = self._close_price_or_none(portal, symbol, today)
-            if close is None:
+            today_price = self._close_price_or_none(portal, symbol, today)
+            if today_price is not None:
+                prices[symbol] = today_price
+                continue
+            # No bar for `symbol` today (suspended / delisted / pre-IPO).
+            # Fall back to the most recent valid close within the same
+            # lookback window used by `DataView.current_price` and emit a
+            # `DATA_WARNING` so the audit trail reflects the deviation.
+            fallback = self._lookback_price_or_none(portal, symbol, today)
+            if fallback is None:
                 self._event_log.record(
                     EngineEvent(
                         date=today,
@@ -357,7 +386,7 @@ class BacktestEngine:
                         error="MissingDataError",
                         detail=(
                             f"no valid close for held symbol {symbol} on "
-                            f"{today}; valuation aborted"
+                            f"{today} (lookback exhausted); valuation aborted"
                         ),
                     )
                 )
@@ -365,10 +394,21 @@ class BacktestEngine:
                     today,
                     "AFTER_TRADING_END",
                     MissingDataError(
-                        "close", f"no valid close for held symbol {symbol} on {today}"
+                        "close",
+                        f"no valid close for held symbol {symbol} on {today}",
                     ),
                 )
-            prices[symbol] = close
+            self._event_log.record(
+                EngineEvent(
+                    date=today,
+                    phase=EventType.DATA_WARNING,
+                    detail=(
+                        f"held symbol {symbol} has no bar on {today}; "
+                        f"valued at fallback close {fallback}"
+                    ),
+                )
+            )
+            prices[symbol] = fallback
         market_value = self._portfolio.market_value(prices)
         total_equity = self._portfolio.cash + market_value
         prev_total = self._equity_curve[-1].total_equity if self._equity_curve else None
@@ -395,7 +435,8 @@ class BacktestEngine:
                 drawdown=drawdown,
             )
         )
-        # Per-day position snapshot with today's actual close prices.
+        # Per-day position snapshot with the valuation price actually used
+        # (today's close or a lookback close for suspended symbols).
         for symbol, position in self._portfolio.positions.items():
             if position.quantity == 0:
                 continue
@@ -420,9 +461,13 @@ class BacktestEngine:
 
         Only `MissingDataError` maps to None; corrupt data or I/O errors
         propagate and abort the run via the caller's RunFailed wrapping.
+        `SnapshotFileMissingError` (whole-day file gone) is an
+        infrastructure failure and propagates as well.
         """
         try:
             bars = portal.get_bars(symbol, today, today)
+        except SnapshotFileMissingError:
+            raise
         except MissingDataError:
             return None
         if not bars:
@@ -431,6 +476,37 @@ class BacktestEngine:
         if close is None or close <= 0:
             return None
         return close
+
+    @staticmethod
+    def _lookback_price_or_none(
+        portal: MarketDataPortal, symbol: str, today: str
+    ) -> Optional[Decimal]:
+        """Most recent valid close for `symbol` within the lookback window.
+
+        Mirrors `DataView.current_price` exactly so the engine's valuation
+        fallback agrees with what strategies see through `DataView`. Used
+        only when `_close_price_or_none` returns None for the same day.
+        """
+        try:
+            trading_days = portal.get_calendar(_lookback_start_date(today), today)
+        except MissingDataError:
+            trading_days = []
+        if not trading_days:
+            return None
+        lookback = trading_days[-CURRENT_PRICE_LOOKBACK:]
+        for day in reversed(lookback):
+            try:
+                bars = portal.get_bars(symbol, day, day)
+            except SnapshotFileMissingError:
+                raise
+            except MissingDataError:
+                continue
+            if not bars:
+                continue
+            close = bars[0].close
+            if close is not None and close > 0:
+                return close
+        return None
 
     def _sellable_for(self, symbol: str) -> int:
         pos = self._portfolio.positions.get(symbol)

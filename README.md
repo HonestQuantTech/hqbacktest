@@ -11,6 +11,8 @@
 
 - **已实现（任务 1–13 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 为设计草案，因子诊断接口与 `analyze_factor_series` 分析器已就位。`BacktestResult` 含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` / `PerformanceMetrics` / `events.jsonl` / `data_version` / `factor_diagnostics`；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。`examples/buy_and_hold.py` 与 `examples/moving_average.py` 用公共 API 跑通端到端流程并有 7 天确定性 `InMemoryDataPortal` 数据 fixture，10 项端到端回归测试覆盖完整生命周期。`hqbacktest run --config FILE --output DIR` 命令行（`hqbacktest/cli/` 包，TOML 配置 + 校验 + 策略导入 + 元数据 + 独立输出目录，绝不泄露凭证）；26 项 CLI 测试覆盖端到端、配置验证、可复现性与错误信息。`.github/workflows/ci.yml` 覆盖 Python 3.10 / 3.11 / 3.12、`black`、`pytest`、`pytest-cov`、示例 smoke 与 CLI smoke；`python -m build` 产出 sdist + wheel；`CHANGELOG.md` 记录 v0.1。
 
+> **⚠️ 2026-08 真实数据评审：** 上述能力在单元测试与单标的真实数据冒烟中验证通过，但对 `~/.hqdata/tushare` 全量快照的评审发现多处仅在真实数据上暴露的严重缺陷：含停牌/中途上市股票的 `history()` 会使回测崩溃、多标的回测性能不可用（5 股 × 139 天 > 10 分钟）、首日盈亏在最大回撤与波动率中不可见、同日卖出回款不能用于买入、跨除权日净值静默少记分红且无警告、`hqbacktest` console script 无法导入用户策略模块等。任务 14（数据层缺行/停牌/首日语义）已修复；性能、同日回款、净值基准、universe 生效、因子诊断接入、CLI 与真实数据冒烟基线等剩余缺陷（任务 15–21）仍待完成，**v0.1 仍仅适用于「单标的、无停牌、无除权区间」的演示场景**，不应据其结果做研究结论。完整缺陷清单见 TODO.md「v0.1 评审结论」。
+
 - **不在 v0.1 内（路线图）：** 限价 / 止损单、成交量参与率、部分成交；ST / 涨跌停 / 新股 / 北交所规则；融资融券 / 期货 / 期权 / 多账户；指数基准与归因；Notebook 与远程策略入口；JSON Schema 校验以外的策略注册中心；交互图表 / HTML 报告。
 
 本文描述的用法、命令行和功能表与 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md) 一致；其中的示例已经可以按 §示例 章节运行。功能表区分「已实现」与「路线图 / 计划中」；任何契约变更必须先更新契约文档。开发顺序与 AI 协作提示见 [TODO.md](TODO.md)。
@@ -34,8 +36,9 @@
 
 | 功能 | 目标接口/产物 | 首版语义 | 当前状态 |
 | --- | --- | --- | :---: |
-| 交易日与历史股票池 | `MarketDataPortal` | 按回测日获取交易日和股票池，避免以今日股票列表产生幸存者偏差 | 已实现 |
-| 日线数据可见性 | `DataView.history()` | 盘前最多看到前一交易日；当天收盘后才可读取当天日线 | 已实现 |
+| 交易日与历史股票池 | `MarketDataPortal` | 按回测日获取交易日和股票池，避免以今日股票列表产生幸存者偏差；`.BJ` 股票默认过滤，`include_bj=True` 可保留 | 已实现 |
+| 日线数据可见性 | `DataView.history()` | 盘前最多看到前一交易日；当天收盘后才可读取当天日线；首日盘前哨兵 `visible_through="00000000"` 不抛异常 | 已实现 |
+| 缺行/停牌/估值口径 | `get_bars`/`DataView.current_price`/日终估值 | `get_bars` 允许逐日间隙；停牌持仓按 20 日回看最近收盘估值并写 `DATA_WARNING`；整日快照缺失抛 `SnapshotFileMissingError`；`Bar.volume` 单位「手」 | 已实现 |
 | 日频事件时钟 | `BacktestEngine`、`EventLog` | 五阶段固定顺序；盘前 D-1、收盘 D 的可见性切换；事件日志记录日期、阶段与错误原因；策略异常带日期和阶段 | 已实现 |
 | 策略生命周期 | `BaseStrategy`、`Context` | `initialize`/`before_trading_start`/`on_bar`/`after_trading_end` 四个回调；只读 `Context` 暴露 `cash` / `positions` / `universe` / `pending_orders` / `history` / `current_price` / `total_equity`；下单意图（`order`/`order_value`/`order_target`/`order_target_value`/`order_target_percent`/`cancel_order`）；市价单且与数据可见性 / 账本严格隔离 | 已实现 |
 | 下单与撤单 | `Context.order_*()` | 首版只支持市价委托，策略只能提交意图，不能直接改账户；仅盘前与收盘回调可下单，订单创建/撤销写入事件日志 | 已实现 |
@@ -52,10 +55,12 @@
 
 ### 已规划的支持范围
 
-- **市场与频率：** 沪深普通股票的日线回测；标的使用 `600000.SH`、`000001.SZ` 这类统一代码。
+- **市场与频率：** 沪深普通股票的日线回测；标的使用 `600000.SH`、`000001.SZ` 这类统一代码。`.BJ`（北交所）股票默认从 `get_universe` 中过滤，需要时通过 `include_bj=True` 显式启用。
 - **账户：** 单个人民币现金账户、股票现货多头；不使用杠杆或保证金。
 - **数据：** 每次回测固定使用一个 `hqdata` 数据源。需要日线时，首选 Tushare 或 RiceQuant；当前 `hqdata` 的 AkShare 适配器不提供稳定的日线能力，不能作为首版回测数据源。
 - **时间：** 日期一律使用 `YYYYMMDD`。`before_trading_start(D)` 只能访问 D-1 及以前的数据，可在 D 开盘参与撮合；`on_bar(D)` 在 D 收盘后才看到 D 日线，所提交订单最早在 D+1 开盘处理。
+- **缺行与停牌（任务 14）：** `get_bars` 允许逐日间隙（窗口内无任何行返回 `[]`）；个股当日缺行（停牌 / 未上市 / 已退市）属正常业务结果；**整日快照文件缺失** 是基础设施错误，必须中止运行。停牌持仓估值采用「最近 20 个交易日内最近一个有效收盘价」并写入 `DATA_WARNING` 事件；首日盘前哨兵 `visible_through="00000000"` 不抛异常。
+- **成交量单位：** `Bar.volume` 单位为「**手**」（1 手 = 100 股；与 Tushare `hqdata` 适配器口径一致）；需要股数时应乘以 `LOT_SIZE`。
 - **成交：** 首版市价单按符合规则的开盘价全额成交；订单、拒绝、费用和成交都要保留可追溯记录。
 - **复权：** 成交、现金账本和 v0.1 净值均使用未复权价格，且 `adjustment_policy` 固定为 `none`。同源复权因子可用于数据质量诊断，但不用于伪造现金分红、送配、配股或税务会计。
 - **结果：** 每次运行应导出净值曲线、订单、成交、每日持仓、成本、配置和运行元数据。

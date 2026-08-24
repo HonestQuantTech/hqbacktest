@@ -19,7 +19,10 @@ Rules (task 7 + task 8):
 from decimal import Decimal
 from typing import Callable, List, Optional, Tuple
 
-from ..data.errors import MissingDataError
+from ..data.errors import (
+    MissingDataError,
+    SnapshotFileMissingError,
+)
 from ..data.portal import MarketDataPortal
 from ..domain.bar import Bar
 from ..domain.enums import EventType, OrderStatus, RejectReason, Side
@@ -97,13 +100,20 @@ class SimulatedBroker:
                 f"order not PENDING (status={order.status.name})",
             )
 
-        # Read the bar for today. `MissingDataError` (suspended symbol /
-        # no bar for this trading day) is a BUSINESS outcome: the order is
-        # rejected via the rule set (contract §4: 停牌标的不可成交, but the
-        # run continues). `InvalidDataError` / I/O errors are infrastructure
-        # failures and propagate so the engine aborts with `RunFailed`.
+        # Read the bar for today.
+        #   * `MissingDataError` (per-symbol gap: suspended / delisted /
+        #     pre-IPO): the bar is simply unavailable. The order is rejected
+        #     by the rule set (`bar_available=False`); the run continues.
+        #   * `SnapshotFileMissingError` (the whole daily file is missing
+        #     on disk): a data infrastructure failure. It MUST propagate so
+        #     the engine aborts the run with `RunFailed` rather than
+        #     silently treating the snapshot as empty.
+        #   * `InvalidDataError` / I/O errors: infrastructure failures and
+        #     propagate.
         try:
             bars = portal.get_bars(order.symbol, today, today)
+        except SnapshotFileMissingError:
+            raise
         except MissingDataError:
             bars = []
         bar_available = bool(bars)

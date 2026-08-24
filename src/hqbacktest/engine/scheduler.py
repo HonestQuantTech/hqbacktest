@@ -77,20 +77,27 @@ def build_view(
     schedule: PhaseSchedule,
     today: str,
 ) -> DataView:
-    """Construct a `DataView` whose `visible_through` matches the phase rule."""
+    """Construct a `DataView` whose `visible_through` matches the phase rule.
+
+    `universe_start` is deliberately left unset here: it denotes the earliest
+    date the strategy may query (a run-level bound derived from the backtest
+    window), not the phase visibility. Bounding `history(bar_count=N)`'s
+    lookback window is `DataView`'s own responsibility (task 14), independent
+    of per-phase visibility.
+    """
     if schedule.visible_through_mode == SAME_DAY_VISIBLE_THROUGH:
-        visible_through = today
-    elif schedule.visible_through_mode == PRE_BAR_VISIBLE_THROUGH:
+        return DataView(portal=portal, visible_through=today)
+    if schedule.visible_through_mode == PRE_BAR_VISIBLE_THROUGH:
         prev = previous_trading_day(portal, today)
-        # On the first trading day no history exists yet; the sentinel keeps
-        # the view legal but restricts reads to dates < today, so the
-        # strategy simply sees no bars.
-        visible_through = prev if prev is not None else NO_HISTORY_VISIBLE_THROUGH
-    else:  # pragma: no cover - defensive
-        raise ValueError(
-            f"unknown visible_through mode: {schedule.visible_through_mode}"
-        )
-    return DataView(portal=portal, visible_through=visible_through)
+        if prev is None:
+            # First trading day: no history exists yet. The sentinel keeps
+            # the view legal but exposes no data.
+            return DataView(
+                portal=portal,
+                visible_through=NO_HISTORY_VISIBLE_THROUGH,
+            )
+        return DataView(portal=portal, visible_through=prev)
+    raise ValueError(f"unknown visible_through mode: {schedule.visible_through_mode}")
 
 
 def run_day(

@@ -81,6 +81,7 @@ class EventType(Enum):
     ORDER_FILLED = "ORDER_FILLED"
 
     DATA_ERROR = "DATA_ERROR"
+    DATA_WARNING = "DATA_WARNING"
     RUN_FAILED = "RUN_FAILED"
 
 

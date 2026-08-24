@@ -24,7 +24,18 @@ class FutureDataAccessError(DataError):
 
 
 class MissingDataError(DataError):
-    """Requested data is not available (no rows, missing dates, etc.)."""
+    """Requested data is not available (no rows, missing dates, etc.).
+
+    Use this for ordinary business-level absences: a symbol suspended on a
+    given trading day, an IPO that has not started yet, a stock that has
+    already delisted, etc. These are recoverable per-symbol outcomes and the
+    engine must NOT abort the run because of them.
+
+    For infrastructure-level failures (the whole daily snapshot file is
+    missing on disk), raise `SnapshotFileMissingError` instead so the engine
+    can distinguish "this stock has no row today" from "we cannot read any
+    row at all today".
+    """
 
     def __init__(self, what: str, detail: str = "") -> None:
         message = f"missing data: {what}"
@@ -33,6 +44,24 @@ class MissingDataError(DataError):
         super().__init__(message)
         self.what = what
         self.detail = detail
+
+
+class SnapshotFileMissingError(MissingDataError):
+    """A whole-daily snapshot file is missing on disk (data infrastructure).
+
+    Distinct from `MissingDataError` (a per-symbol gap such as a suspended or
+    delisted stock) so the engine and broker can refuse to silently fold
+    an infrastructure failure into a business rejection. The engine must
+    abort the run with a clear `DATA_ERROR` rather than treating the
+    missing file as "no quote available".
+
+    `path` is the filesystem path that was expected; `what` describes the
+    snapshot family (e.g. `stock_daily`).
+    """
+
+    def __init__(self, what: str, path: str) -> None:
+        super().__init__(what, f"snapshot file missing: {path}")
+        self.path = path
 
 
 class InvalidDataError(DataError):
