@@ -171,12 +171,22 @@
 | 维度 | v0.1 默认决定 |
 | --- | --- |
 | 首日 `daily_return` | `total_equity[0] / initial_cash - 1`（**不再硬编码 0**），首日 P&L 进入收益序列。 |
-| 首日 `drawdown` | `(initial_cash - total_equity[0]) / initial_cash`（首日下跌时为正；不再硬编码 0）；**后续日 running peak = `max(initial_cash, 历史 total_equity)`**，首日跌幅进入回撤峰值序列。 |
+| 首日 `drawdown` | `(initial_cash - total_equity[0]) / initial_cash`（首日下跌时为正；不再硬编码 0），后续日 running peak = `max(initial_cash, 历史 total_equity)`，首日跌幅进入回撤峰值序列。 |
 | 恒等式 | `∏(1 + daily_return) == 1 + total_return`（Decimal 精度内）。 |
 | 波动率样本不足 | `< 2` 个日收益时 `daily_volatility` / `annualized_volatility` / `sharpe_ratio` 返回 `None` + note（**禁止错报 0**）；真正 0 波动率才返回 `Decimal('0')`。 |
 | `annualized_return` 幂运算 | `float(growth) ** float(exponent)` 通过 `Decimal(str(...))` 重建为 Decimal，**禁止 `Decimal(float(...))`**。 |
 | Decimal 量化 | 所有 `float` 桥接的 Decimal 输出统一 quantize 到 `Decimal('0.000000000001')`，保证 `summary.json` 干净。 |
 | `positions.sellable_quantity` | **结转后**（D 行快照为 D+1 起始时可卖数）；engine 在 `_snapshot_equity` 前调用 `settle_t1`，D 行的 `sellable_quantity` 即已包含当日成交的滚动。 |
+
+### 3.6 策略隔离与审计完整性（任务 18 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| `Order` 不可变 | `@dataclass(frozen=True)`；策略收到 `pending_orders()` 后无法修改任何字段（quantity / avg_fill_price / fill_ids 等）；`transition` / `record_fill` 用 `object.__setattr__` 绕过冻结，仅 engine / broker 可调用。 |
+| `DataView.portal` 私有 | 字段名 `_portal`（私有），**策略无法**通过 `view.portal.get_bars(sym, future_date)` 绕过 `visible_through`；所有数据访问走 `view.history` / `view.current_price` / `view.universe`。 |
+| Universe 生效 | `set_universe(...)` 后，对未声明的符号下单立即拒绝（`RejectReason.OUT_OF_UNIVERSE`，含 ORDER_CREATED + ORDER_REJECTED 事件，Order 不经过 broker、停留在 `_out_of_universe_orders` 并在 result 构造时折入 `orders_table`）；**未设 universe 时不限制**。 |
+| 历史股票池 | `Context.historical_universe()` 返回 `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束；不暴露 raw portal。 |
+| 返回值防御性 | `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用（任务 15）。 |
 
 ## 6. 不可变规则
 
@@ -229,4 +239,5 @@
 | 2026-08-23 | v0.1 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录污染 | hqbacktest 维护者 |
 | 2026-08-24 | v0.1 | 任务 14 数据层缺行/停牌/首日语义：钉死 `get_bars` 允许间隙、引入 `SnapshotFileMissingError` 区分整日文件缺失与个股缺行、`current_price` 回看 20 交易日最近有效收盘价、首日哨兵日期不抛异常、删除 `InMemoryDataPortal.get_universe` 向前回退、补双门户 parity 测试、缓存返回防御性拷贝、`.BJ` 股票默认过滤、`Bar.volume` 单位标注为「手」 | hqbacktest 维护者 |
 | 2026-08-24 | v0.1 | 任务 16 撮合与账本语义：同批撮合 SELL 先于 BUY（滚动现金）、SELL 不整手取整（`order_target(0)` 可清零股）、`Fill.BUY` 携带非零 stamp_tax 报错、`Order.record_fill` 移除不可达 `ACCEPTED` 分支、`intents.target_quantity_for_value(0)` 按 docstring 返回 0、CLI `initial_cash` 拒绝 float 与引擎对齐、`realized_pnl` 不含费用修正旧注释；登记 §3.4 撮合口径表 | hqbacktest 维护者 |
-| 2026-08-24 | v0.1 | 任务 17 净值与指标基准：首日 `daily_return` / `drawdown` 以 `initial_cash` 为基准（不再硬编码 0）、波动率样本不足返回 `None` 而非 0、`Decimal(str(float(...)))` 替代 `Decimal(float(...))` 幂运算桥接、`positions.sellable_quantity` 口径登记为「结转后」；恒等式 `∏(1 + daily_return) = 1 + total_return` 成立；登记 §3.5 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 17 净值与指标基准：首日 `daily_return` / `drawdown` 以 `initial_cash` 为基准（不再硬编码 0）、后续日 running peak = `max(initial_cash, 历史 total_equity)`、波动率样本不足返回 `None` 而非 0、`Decimal(str(float(...)))` 替代 `Decimal(float(...))` 幂运算桥接、`positions.sellable_quantity` 口径登记为「结转后」；恒等式 `∏(1 + daily_return) = 1 + total_return` 成立；登记 §3.5 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 18 策略隔离与审计完整性：`Order` 改为 `frozen=True`（策略无法篡改 `pending_orders()` 返回的 Order）、`DataView.portal` 改为私有 `_portal`、universe 生效（`RejectReason.OUT_OF_UNIVERSE`）、`Context.historical_universe()` 转发 `DataView.universe()` 受可见性约束；登记 §3.6 | hqbacktest 维护者 |

@@ -57,6 +57,9 @@ class RejectReason(Enum):
     MISSING_DATA = "MISSING_DATA"
     DUPLICATE_ORDER = "DUPLICATE_ORDER"
     BACKTEST_ENDED = "BACKTEST_ENDED"
+    # Task 18: order targets a symbol outside the strategy's declared
+    # universe. Only emitted when `set_universe` has been called.
+    OUT_OF_UNIVERSE = "OUT_OF_UNIVERSE"
     OTHER = "OTHER"
 
 

@@ -528,7 +528,9 @@ class BacktestEngine:
         pos = self._portfolio.positions.get(symbol)
         return pos.sellable_quantity if pos else 0
 
-    def _on_open_match(self, today: str, pending: List[Order]) -> None:
+    def _on_open_match(
+        self, today: str, pending: List[Order], context: Context
+    ) -> None:
         """Match pending orders at `OPEN_MATCH(today)` and apply fills.
 
         Each order goes through `TradingRuleSet.evaluate` first; the first
@@ -540,6 +542,11 @@ class BacktestEngine:
         aborts the run via `RunFailed`.
         """
         for order in pending:
+            self._orders[order.order_id] = order
+        # Task 18: fold out-of-universe rejections into the orders
+        # table so the audit trail sees them. These orders never
+        # reached the broker.
+        for order in context._consume_out_of_universe_orders():
             self._orders[order.order_id] = order
         results = self._broker.match(
             pending,

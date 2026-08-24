@@ -172,6 +172,16 @@ hqbacktest/
 
 完整口径见 `docs/design/mvp-contract.md` §3.5。手算回归测试在 `tests/engine/test_task17_metrics.py`。
 
+### 策略隔离与审计完整性（任务 18）
+
+- **`Order` 不可变：** `@dataclass(frozen=True)`，策略通过 `Context.pending_orders()` 拿到 Order 后无法修改任何字段（`quantity` / `avg_fill_price` / `fill_ids` 等）。`transition` / `record_fill` 用 `object.__setattr__` 绕过冻结，仅 engine / broker 可调用。
+- **`DataView.portal` 私有：** 字段名 `_portal`，策略无法通过 `view.portal.get_bars(sym, future_date)` 绕过 `visible_through`；所有数据访问走 `view.history` / `view.current_price` / `view.universe`。
+- **Universe 生效：** `set_universe([...])` 后对未声明符号下单立即拒绝（`RejectReason.OUT_OF_UNIVERSE`，含 ORDER_CREATED + ORDER_REJECTED 事件，Order 不经过 broker、停在 `_out_of_universe_orders` 并在 result 构造时折入 `orders_table`）；未设 universe 时不限制。
+- **历史股票池：** `Context.historical_universe()` 返回 `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束，不暴露 raw portal。
+- **返回值防御性：** `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用（任务 15）。
+
+完整口径见 `docs/design/mvp-contract.md` §3.6。回归测试在 `tests/engine/test_task18_isolation.py`。
+
 ## Python 用法（已实现）
 
 > 下面的代码就是 `examples/moving_average.py` 的简化版，可直接 `python -m hqbacktest run` 跑通（见 §命令行）。完整示例见 `examples/`。

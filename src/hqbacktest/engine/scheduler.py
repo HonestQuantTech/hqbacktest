@@ -26,7 +26,9 @@ from .strategy import Strategy
 
 
 # Callback the engine plugs in to consume pending orders at OPEN_MATCH.
-OpenMatchCallback = Callable[[str, List[Order]], None]
+# `context` is passed so the engine can drain out-of-universe rejections
+# alongside regular pending orders (task 18).
+OpenMatchCallback = Callable[[str, List[Order], "Context"], None]
 
 
 # Each phase's `visible_through` rule (contract §4). A value of `None` means
@@ -144,8 +146,14 @@ def run_day(
                 # Only consume when a matcher is wired in; otherwise pending
                 # orders would silently vanish without any event.
                 pending = context._consume_pending_orders()
-                if pending:
-                    on_open_match(today, pending)
+                # Task 18: invoke the matcher whenever there is anything to
+                # process — pending orders OR out-of-universe rejections to
+                # fold into the audit table. The engine drains both in a
+                # single call; do NOT pre-consume the out-of-universe list
+                # here (the engine must consume it, or those rejections
+                # would be silently dropped from the orders table).
+                if pending or context._has_out_of_universe_orders():
+                    on_open_match(today, pending, context)
             continue
         elif entry.phase is EventType.BAR_CLOSE:
             strategy.on_bar(context, view)

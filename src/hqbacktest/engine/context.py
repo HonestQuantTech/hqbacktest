@@ -30,7 +30,7 @@ from typing import Dict, List, Optional
 
 from ..data.data_view import DataView
 from ..data.validators import validate_symbol
-from ..domain.enums import EventType, OrderType, OrderStatus, Side
+from ..domain.enums import EventType, OrderType, OrderStatus, RejectReason, Side
 from ..domain.money import LOT_SIZE, is_positive, quantize_cash, round_lot
 from ..domain.order import Order
 from ..domain.portfolio import Portfolio
@@ -78,6 +78,7 @@ class Context:
         self._data_view = data_view
         self._universe: List[str] = []
         self._pending_orders: List[Order] = []
+        self._out_of_universe_orders: List[Order] = []
         self._initialized: bool = False
         self._universe_locked: bool = False
         self._run_finished: bool = False
@@ -113,6 +114,21 @@ class Context:
         orders = list(self._pending_orders)
         self._pending_orders = []
         return orders
+
+    def _consume_out_of_universe_orders(self) -> List[Order]:
+        """Return and clear out-of-universe orders for audit-trail merge."""
+        orders = list(self._out_of_universe_orders)
+        self._out_of_universe_orders = []
+        return orders
+
+    def _has_out_of_universe_orders(self) -> bool:
+        """True when out-of-universe rejections are waiting to be drained.
+
+        Peek-only (does not clear): the scheduler uses this to decide
+        whether to invoke the matcher, while the engine drains the list
+        via `_consume_out_of_universe_orders` (task 18).
+        """
+        return bool(self._out_of_universe_orders)
 
     # ------------------------------------------------------------------ #
     # Guards
@@ -195,11 +211,30 @@ class Context:
         return replace(pos) if pos is not None else None
 
     def universe(self) -> List[str]:
+        """Snapshot of the strategy's declared universe (defensive copy)."""
         self._require_active("universe")
         return list(self._universe)
 
+    def historical_universe(self) -> List[str]:
+        """The historical stock list as of the current `visible_through`.
+
+        Task 18: this is the only universe accessor that reads through
+        the data portal. It is constrained by `visible_through` and
+        must not be used to bypass the data view. When no `DataView`
+        is published (e.g. in `initialize`), an empty list is returned.
+        """
+        self._require_active("historical_universe")
+        if self._data_view is None:
+            return []
+        return self._data_view.universe()
+
     def pending_orders(self) -> List[Order]:
-        """Snapshot of in-flight orders (engine clears them at matching)."""
+        """Snapshot of in-flight orders (engine clears them at matching).
+
+        Task 18: the returned list and its `Order` elements are
+        defensive copies / frozen instances — strategies cannot
+        mutate the engine's view of the order.
+        """
         self._require_active("pending_orders")
         return list(self._pending_orders)
 
@@ -425,7 +460,7 @@ class Context:
         side: Side,
         quantity: int,
         order_type: OrderType = OrderType.MARKET,
-    ) -> Order:
+    ) -> Optional[Order]:
         # Contract rule 7: every order path funnels through here, so the
         # order-type allow-list and symbol validation cannot be bypassed by
         # the convenience helpers.
@@ -454,6 +489,14 @@ class Context:
             final_quantity = lot_aligned
         else:
             final_quantity = quantity
+        # Task 18: when a universe has been declared, orders for symbols
+        # outside it must be rejected (typed reason + audit-trail event).
+        # When the strategy has not called `set_universe`, the universe
+        # is empty and trading is unrestricted.
+        if self._universe and symbol not in self._universe:
+            return self._reject_out_of_universe(
+                symbol=symbol, side=side, quantity=final_quantity
+            )
         # Guaranteed by _require_orderable in every public order method.
         created_session = self._phase
         order = Order(
@@ -479,6 +522,67 @@ class Context:
                 detail=(
                     f"{side.name} {final_quantity} {symbol} "
                     f"(session={created_session.name})"
+                ),
+            )
+        )
+        return order
+
+    def _reject_out_of_universe(
+        self,
+        *,
+        symbol: str,
+        side: Side,
+        quantity: int,
+    ) -> Optional[Order]:
+        """Build a REJECTED order for a symbol outside the declared
+        universe. Records ORDER_REJECTED + ORDER_CREATED events so the
+        audit trail is complete (task 18). The order is NOT appended
+        to `_pending_orders` so the broker never sees it (REJECTED is
+        a terminal status and would corrupt the broker's state
+        machine); instead it lands in `_out_of_universe_orders` and
+        is folded into the engine's `orders_table` at result build.
+        """
+        created_session = self._phase
+        order = Order(
+            order_id=self._next_order_id(),
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=OrderType.MARKET,
+            created_at=self._current_date,
+            created_session=created_session,
+        )
+        order.transition(OrderStatus.ACCEPTED, at=self._current_date)
+        # Stamp the reason onto the Order itself (not only the event log)
+        # so `orders_table.reject_reason` and the ORDER_REJECTED event
+        # agree (task 18 audit integrity).
+        order.transition(
+            OrderStatus.REJECTED,
+            at=self._current_date,
+            reason=RejectReason.OUT_OF_UNIVERSE,
+            detail=(
+                f"{symbol} not in declared universe "
+                f"({len(self._universe)} symbols); order rejected"
+            ),
+        )
+        self._out_of_universe_orders.append(order)
+        self._event_log.record(
+            EngineEvent(
+                date=self._current_date,
+                phase=EventType.ORDER_CREATED,
+                order_id=order.order_id,
+                detail=f"{side.name} {quantity} {symbol} (session={created_session.name})",
+            )
+        )
+        self._event_log.record(
+            EngineEvent(
+                date=self._current_date,
+                phase=EventType.ORDER_REJECTED,
+                order_id=order.order_id,
+                error=RejectReason.OUT_OF_UNIVERSE.name,
+                detail=(
+                    f"{symbol} not in declared universe "
+                    f"({len(self._universe)} symbols); order rejected"
                 ),
             )
         )

@@ -56,11 +56,33 @@ class DataView:
 
     `visible_through="00000000"` is a legal sentinel that exposes no data:
     `history(...)` returns `[]` and `current_price(...)` returns `None`.
+
+    Task 18: the `portal` attribute is **private** (name-mangled to
+    `_portal`). Strategies cannot reach the raw `MarketDataPortal` and
+    bypass `visible_through` via `view.portal.get_bars(...)`. All
+    data-layer access goes through the guarded methods on this view.
+    The constructor still accepts `portal=...` (kwarg) so existing
+    call sites don't break, but the value is stored only on the
+    private field and is never re-exposed.
     """
 
-    portal: MarketDataPortal
+    _portal: MarketDataPortal
     visible_through: str
     universe_start: Optional[str] = None
+
+    def __init__(
+        self,
+        portal: MarketDataPortal,
+        visible_through: str,
+        universe_start: Optional[str] = None,
+    ) -> None:
+        # Accept `portal=` for backward compatibility, but store it on
+        # the private `_portal` field. Strategies that try to read
+        # `view.portal` get `AttributeError` (task 18 isolation).
+        self._portal = portal
+        self.visible_through = visible_through
+        self.universe_start = universe_start
+        self.__post_init__()
 
     def __post_init__(self) -> None:
         # The sentinel "00000000" is allowed as a special value.
@@ -113,14 +135,14 @@ class DataView:
             return []
         self._guard(start)
         self._guard(end)
-        return self.portal.get_bars(symbol, start, end)
+        return self._portal.get_bars(symbol, start, end)
 
     def get_factor(self, symbol: str, start: str, end: str):
         if self.visible_through == NO_HISTORY_SENTINEL:
             return []
         self._guard(start)
         self._guard(end)
-        return self.portal.get_factor(symbol, start, end)
+        return self._portal.get_factor(symbol, start, end)
 
     def get_universe(
         self, date: Optional[str] = None, include_bj: bool = False
@@ -129,7 +151,7 @@ class DataView:
         if self.visible_through == NO_HISTORY_SENTINEL:
             return []
         self._guard(target)
-        return self.portal.get_universe(target, include_bj=include_bj)
+        return self._portal.get_universe(target, include_bj=include_bj)
 
     def universe(self) -> List[str]:
         """Historical universe as of `visible_through` (excluding .BJ)."""
@@ -174,7 +196,7 @@ class DataView:
         else:
             start = self._resolve_history_start(bar_count)
         try:
-            bars = self.portal.get_bars(symbol, start, self.visible_through)
+            bars = self._portal.get_bars(symbol, start, self.visible_through)
         except SnapshotFileMissingError:
             # A missing whole-day snapshot is an infrastructure failure, not
             # a per-symbol gap. It must propagate so the engine aborts the
@@ -217,7 +239,7 @@ class DataView:
         # trading days, NOT by bar count: a symbol suspended for longer
         # than the lookback must exhaust the window (return None), not
         # reach further back to its pre-suspension close.
-        trading_days = self.portal.get_calendar(
+        trading_days = self._portal.get_calendar(
             _trading_day_lookback_start(self.visible_through),
             self.visible_through,
         )
@@ -226,7 +248,7 @@ class DataView:
         lookback = trading_days[-CURRENT_PRICE_LOOKBACK:]
         cutoff = lookback[0]
         try:
-            bars = self.portal.get_bars(symbol, cutoff, self.visible_through)
+            bars = self._portal.get_bars(symbol, cutoff, self.visible_through)
         except SnapshotFileMissingError:
             # Whole-day file gone: infrastructure failure, propagate so
             # the engine aborts the run with DATA_ERROR.
