@@ -326,9 +326,28 @@ def test_no_fills_records_trade_count_zero_and_turnover_zero():
 
 
 def test_sharpe_with_risk_free_rate_and_simple_equity():
-    # Two days: equity 100 -> 110. Daily return 0.10.
-    # daily_volatility = stdev([0.10]) = 0 (single value)
-    # -> sharpe None.
+    """Task 23: a 2-day equity curve with two distinct `daily_return`
+    samples produces a defined Sharpe ratio.
+
+    Pre-fix this test asserted `sharpe_ratio is None` because the
+    old `_daily_returns` re-derived the series from `total_equity`,
+    seeded `[Decimal("0")]`, and effectively dropped the day-0
+    return. With the fix, the series passed to `stdev` is the
+    engine's `EquityPoint.daily_return` (two values), so the
+    volatility is defined and Sharpe can be computed against a
+    non-zero risk-free rate.
+
+    Hand calculation:
+        daily_returns = [0.0, 0.10]
+        mean = 0.05
+        sample variance = ((-0.05)^2 + 0.05^2) / (2-1) = 0.005
+        stdev = sqrt(0.005) ≈ 0.07071   (NOT 0.10 — sample stddev
+                                          divides by n-1 and takes
+                                          the square root)
+        annualized_volatility ≈ 0.07071 * sqrt(252)
+        annualized_return ≈ (1.10)^(2/252) - 1 ≈ 0.000757
+        sharpe = (0.000757 - 0.025) / (0.07071 * sqrt(252))  < 0
+    """
     eq = [
         EquityPoint(
             "20240102",
@@ -351,14 +370,23 @@ def test_sharpe_with_risk_free_rate_and_simple_equity():
     m = compute_metrics(
         equity_curve=eq, fills=[], initial_cash=Decimal("100000"), config=cfg
     )
-    # 1 day of returns -> vol None -> sharpe None.
-    assert m.sharpe_ratio is None
+    # Task 23: 2 distinct samples -> volatility is defined.
+    assert m.daily_volatility is not None
+    # Hand-calculated: stdev([0, 0.10], ddof=1) = sqrt(0.005)
+    # ≈ 0.07071.
+    expected = Decimal("0.07071")
+    assert abs(m.daily_volatility - expected) < Decimal("0.0001")
+    # Sharpe is computed; risk_free_rate is 2.5% so it is negative
+    # (annualised return is well below the risk-free rate over 2
+    # trading days).
+    assert m.sharpe_ratio is not None
+    assert m.sharpe_ratio < Decimal("0")
 
 
 def test_sharpe_with_three_days_of_varying_returns():
     # 100 -> 110 -> 121 -> 110. Returns: 0, 0.10, 0.10, -0.0909.
-    # daily_returns[1:] = [0.10, 0.10, -0.0909...]
-    # stdev (sample) of those = 0.1087...
+    # Task 23: stdev (sample) of the full series [0, 0.10, 0.10, -0.0909]
+    # ≈ 0.0918 (the first day's return is now included, not sliced off).
     eq = [
         EquityPoint(
             "20240102",

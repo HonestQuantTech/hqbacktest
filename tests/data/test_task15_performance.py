@@ -260,19 +260,22 @@ def test_perf_smoke_50_symbols_250_days_history(tmp_path):
     generous CI threshold. We pick 15 s — far above the expected
     sub-second runtime but well within typical GitHub Actions timeouts.
     """
+    from datetime import date, timedelta
+
     symbols = [f"{600000 + i:06d}.SH" for i in range(50)]
     days = []
-    # 250 sequential YYYYMMDD strings starting at 20240102, skipping weekends.
-    d = 20240102
+    # 250 sequential calendar-valid YYYYMMDD strings starting at 20240102.
+    # Task 22.3: the previous hand-rolled generator used an integer counter
+    # with ``if d % 100 == 32: d += 70`` to skip month boundaries. That
+    # skip only caught the day-32 rollover that follows a 31-day month,
+    # so it emitted impossible dates for shorter months (`20240230`,
+    # `20240231`, `20240431`, `20240631`), which the old (len+isdigit
+    # only) `validate_yyyymmdd` silently accepted. We now iterate via
+    # `datetime` so the calendar is correct by construction.
+    d = date(2024, 1, 2)
     while len(days) < 250:
-        mmdd = d % 10000
-        weekday = mmdd % 7  # rough placeholder; we don't actually skip here
-        days.append(f"{d:08d}")
-        d += 1
-        if d % 100 == 32:
-            d += 70  # jump a month to keep within 250 entries
-    # Truncate to exactly 250 just in case the loop overshot.
-    days = days[:250]
+        days.append(d.strftime("%Y%m%d"))
+        d += timedelta(days=1)
 
     _build_synthetic_snapshot(tmp_path, symbols=symbols, trading_days=days)
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))

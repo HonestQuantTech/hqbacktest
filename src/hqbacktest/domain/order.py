@@ -26,8 +26,8 @@ class Order:
     Order via `Context.pending_orders()` cannot mutate any field —
     attempted assignment raises `FrozenInstanceError`. Lifecycle
     mutations (`transition`, `record_fill`) use `object.__setattr__`
-    to bypass the freeze; that path is engine-internal and never
-    exposed to strategy code.
+    to assign to the frozen fields; that path is engine-internal and
+    never exposed to strategy code.
     """
 
     order_id: str
@@ -117,8 +117,8 @@ class Order:
     ) -> None:
         """Move the order to `target`, stamping the matching timestamp.
 
-        Task 18: this mutator uses `object.__setattr__` to bypass the
-        frozen-dataclass guard. Only the engine / broker may call it.
+        Task 18: this mutator uses `object.__setattr__` to assign to
+        frozen fields. Only the engine / broker may call it.
         """
         self._validate_date(at, "at")
         validate_transition(self.status, target)
@@ -155,8 +155,8 @@ class Order:
         fill arrives, so the ACCEPTED branch in the status guard was
         unreachable in practice (task 16).
 
-        Task 18: this mutator uses `object.__setattr__` to bypass the
-        frozen-dataclass guard. Only the engine / broker may call it.
+        Task 18: this mutator uses `object.__setattr__` to assign to
+        frozen fields. Only the engine / broker may call it.
         """
         if self.status not in (
             OrderStatus.PENDING,
@@ -192,7 +192,8 @@ class Order:
         object.__setattr__(self, "filled_quantity", new_filled)
         # fill_ids is an immutable tuple so a strategy holding the frozen
         # Order cannot append/clear it in place (task 18). Rebuild the
-        # tuple here via object.__setattr__ to bypass the frozen guard.
+        # tuple here via object.__setattr__ to assign to the frozen
+        # field.
         object.__setattr__(self, "fill_ids", self.fill_ids + (fill_id,))
         if new_filled == self.quantity:
             self.transition(OrderStatus.FILLED, at=at)

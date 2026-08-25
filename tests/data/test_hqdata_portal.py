@@ -125,11 +125,48 @@ def test_resolve_source_location_with_name_uses_default_root(tmp_path):
     assert name == "tushare"
 
 
-def test_resolve_source_location_rejects_source_path(tmp_path):
-    with pytest.raises(InvalidDataError, match="directory name"):
-        resolve_source_location(
-            str(tmp_path / "ricequant"), default_data_root="ignored"
+def test_resolve_source_location_with_absolute_path_splits_into_root_and_name(tmp_path):
+    """Task 22.1: absolute paths are split into (parent_data_root, source_name).
+
+    This mirrors the documented behaviour: `source` may be either a bare
+    directory name (resolved under `default_data_root`) or an absolute
+    path to the snapshot directory (e.g. `~/.hqdata/tushare`), which is
+    split into `(~/.hqdata, tushare)`.
+    """
+    snap_dir = tmp_path / "ricequant"
+    data_root, name = resolve_source_location(
+        str(snap_dir), default_data_root="ignored"
+    )
+    assert name == "ricequant"
+    assert data_root == str(tmp_path)
+
+
+def test_resolve_source_location_with_tilde_absolute_path_expands_and_splits(
+    tmp_path,
+):
+    """`~/.hqdata/tushare` expands the tilde and splits to (parent, name)."""
+    fake_home = tmp_path / "home"
+    snap_dir = fake_home / ".hqdata" / "tushare"
+    os.environ["HOME"] = str(fake_home)
+    try:
+        data_root, name = resolve_source_location(
+            "~/.hqdata/tushare", default_data_root="ignored"
         )
+    finally:
+        del os.environ["HOME"]
+    assert name == "tushare"
+    assert data_root == str(fake_home / ".hqdata")
+
+
+def test_resolve_source_location_rejects_relative_source_path(tmp_path):
+    """Relative paths like `foo/bar` are still rejected: too ambiguous.
+
+    The contract is "bare name OR absolute path". A relative path that
+    mixes both is rejected so users do not get surprising cwd-relative
+    resolutions.
+    """
+    with pytest.raises(InvalidDataError, match="directory name"):
+        resolve_source_location("foo/bar", default_data_root=str(tmp_path))
 
 
 def test_resolve_source_location_rejects_empty():
@@ -161,9 +198,20 @@ def test_construction_resolves_snapshot_root(tmp_path):
     assert portal.data_version().source == "tushare"
 
 
-def test_construction_rejects_absolute_path_source(tmp_path):
-    with pytest.raises(InvalidDataError, match="directory name"):
-        HqDataCsvPortal(source=str(tmp_path / "ricequant"))
+def test_construction_accepts_absolute_path_source_and_splits(tmp_path):
+    """Task 22.1: `HqDataCsvPortal(source=/abs/path)` splits into (parent, name)."""
+    snap = _build_snapshot(
+        tmp_path,
+        "tushare",
+        [("20240102", "Y"), ("20240103", "Y")],
+        {"20240102": [], "20240103": []},
+        {"20240102": [], "20240103": []},
+        {"20240102": [], "20240103": []},
+    )
+    portal = HqDataCsvPortal(source=str(snap), data_root="ignored")
+    assert portal.source_name() == "tushare"
+    assert portal.snapshot_root() == snap
+    assert portal.data_root() == tmp_path
 
 
 def test_construction_rejects_empty_source():

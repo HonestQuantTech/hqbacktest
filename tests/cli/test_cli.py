@@ -434,17 +434,61 @@ def test_runner_writes_run_metadata(tmp_path: Path) -> None:
 
 def test_runner_does_not_write_secrets(tmp_path: Path, monkeypatch) -> None:
     """Tokens, env vars, and absolute local paths must never appear in
-    the output directory."""
+    `run_metadata.json`.
+
+    Task 22.2: also asserts that absolute paths passed via `--config`
+    or `--output` are written as **relative** paths in the metadata
+    fields `config_path`, `output_directory`, and
+    `config_output_directory`. The absolute path itself never appears
+    in the metadata file; relative paths are still useful for
+    re-running and comparing results across machines without leaking
+    `/home/<user>` style directory layouts.
+
+    Note: `config.toml` in the output directory is a byte-faithful copy
+    of the user's input (audit trail, see `_write_config_toml`), so it
+    intentionally preserves whatever the user wrote there. The
+    `run_metadata.json` is the auto-generated summary that the
+    contract says must NOT carry absolute paths.
+    """
     monkeypatch.setenv("HQBACKTEST_TEST_TOKEN", "super-secret-token-12345")
     data_root = _write_csv_snapshot(tmp_path)
     cfg_path = tmp_path / "config.toml"
     cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
-    result = run_from_file(str(cfg_path))
+    # Run from `tmp_path` so the absolute cfg path lives one level above
+    # cwd — that exercises the relative-path normalisation with a non-
+    # trivial relpath.
+    monkeypatch.chdir(tmp_path)
+    cfg_abs = cfg_path.resolve()
+    assert cfg_abs.is_absolute()
+    result = run_from_file(str(cfg_abs))
     assert result.exit_code == 0
+    # Token / env-var leak check across ALL output files (cheap substring
+    # scan; no machine paths involved).
     for path in result.output_dir.iterdir():
         text = path.read_text(encoding="utf-8", errors="ignore")
         assert "super-secret-token-12345" not in text, f"secret leaked into {path}"
         assert "HQBACKTEST_TEST_TOKEN" not in text, f"env var leaked into {path}"
+    # Task 22.2: only `run_metadata.json` is checked for absolute paths,
+    # because `config.toml` is the user's byte-faithful audit copy.
+    import json
+
+    meta = json.loads((result.output_dir / "run_metadata.json").read_text())
+    meta_text = (result.output_dir / "run_metadata.json").read_text()
+    assert (
+        str(cfg_abs) not in meta_text
+    ), f"absolute config path leaked into run_metadata.json: {meta_text!r}"
+    assert (
+        str(result.output_dir.resolve()) not in meta_text
+    ), f"absolute output dir leaked into run_metadata.json: {meta_text!r}"
+    # Field-level check: the three path fields are stored as relative paths
+    # (relative to the cwd at run time), or None when not applicable.
+    for field in ("config_path", "output_directory", "config_output_directory"):
+        value = meta.get(field)
+        if value is None:
+            continue
+        assert not Path(
+            value
+        ).is_absolute(), f"{field}={value!r} is absolute; must be relative to cwd"
 
 
 def test_runner_is_deterministic(tmp_path: Path) -> None:
@@ -486,10 +530,15 @@ def test_runner_creates_output_directory(tmp_path: Path) -> None:
     assert result.output_dir.exists()
 
 
-def test_runner_output_override_beats_config_directory(tmp_path: Path) -> None:
+def test_runner_output_override_beats_config_directory(
+    tmp_path: Path, monkeypatch
+) -> None:
     """`--output` (the `output_dir` arg) overrides `[output].directory`."""
     import json
 
+    # Task 22.2: relativize_path uses `os.getcwd()`; chdir to tmp_path
+    # so the relativized values are predictable basenames.
+    monkeypatch.chdir(tmp_path)
     config_out = tmp_path / "from_config"
     override_out = tmp_path / "from_cli_flag"
     data_root = _write_csv_snapshot(tmp_path)
@@ -501,8 +550,11 @@ def test_runner_output_override_beats_config_directory(tmp_path: Path) -> None:
     assert (override_out / "equity_curve.csv").exists()
     assert not config_out.exists()
     meta = json.loads((override_out / "run_metadata.json").read_text())
-    assert meta["output_directory"] == str(override_out)
-    assert meta["config_output_directory"] == str(config_out)
+    # Task 22.2: path fields in run_metadata.json are relativized to the
+    # run-time cwd; both dirs live under tmp_path so the relative form
+    # is the basename.
+    assert meta["output_directory"] == "from_cli_flag"
+    assert meta["config_output_directory"] == "from_config"
 
 
 def test_runner_unwritable_output_returns_3(tmp_path: Path) -> None:
@@ -558,11 +610,15 @@ def test_cli_returns_2_on_config_error(tmp_path: Path, capsys) -> None:
     assert "hqbacktest:" in captured.err
 
 
-def test_console_script_runs_end_to_end(tmp_path: Path) -> None:
-    """`hqbacktest` console script works from a fresh subprocess.
+def test_python_m_runs_end_to_end(tmp_path: Path) -> None:
+    """`python -m hqbacktest run` works end-to-end from a fresh subprocess.
 
-    We invoke the script via `python -m hqbacktest run` so the test does
-    not depend on the console-script being installed on the test machine.
+    Task 22.4: previously named `test_console_script_runs_end_to_end`,
+    but the docstring already acknowledged it runs via
+    `python -m hqbacktest` rather than the installed console script.
+    Renamed for accuracy; the real console-script entry point is
+    covered by `test_console_script_runs_end_to_end` below, which
+    invokes the binary produced by `pip install -e .` directly.
     """
     repo = Path(__file__).resolve().parents[2]
     data_root = _write_csv_snapshot(tmp_path)
@@ -573,6 +629,58 @@ def test_console_script_runs_end_to_end(tmp_path: Path) -> None:
             sys.executable,
             "-m",
             "hqbacktest",
+            "run",
+            "--config",
+            str(cfg_path),
+            "--output",
+            str(tmp_path / "out"),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=str(repo),
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "out" / "equity_curve.csv").exists()
+
+
+def test_console_script_runs_end_to_end(tmp_path: Path) -> None:
+    """The installed `hqbacktest` console script runs end-to-end.
+
+    Task 22.4: counterpart to `test_python_m_runs_end_to_end`. This
+    test invokes the actual console-script binary (e.g. the one
+    produced by `pip install -e .`) so that any divergence between
+    the `python -m` shim and the console-script entry point is
+    caught by CI.
+    """
+    # Locate the venv's `hqbacktest` binary; the test relies on
+    # `pip install -e .` having been run before `pytest`. If the
+    # binary is missing we skip with a clear reason rather than fail,
+    # so the test does not break fresh CI runners that have not
+    # installed the editable build yet.
+    import shutil
+
+    repo = Path(__file__).resolve().parents[2]
+    candidates = [
+        repo / ".venv" / "bin" / "hqbacktest",  # POSIX
+        repo / ".venv" / "Scripts" / "hqbacktest.exe",  # Windows
+    ]
+    binary = next((p for p in candidates if p.exists()), None)
+    if binary is None:
+        on_path = shutil.which("hqbacktest")
+        if on_path is None:
+            pytest.skip(
+                "hqbacktest console-script binary not found; run "
+                "`pip install -e .` in the test venv to enable this "
+                "test"
+            )
+        binary = Path(on_path)
+    data_root = _write_csv_snapshot(tmp_path)
+    cfg_path = tmp_path / "c.toml"
+    cfg_path.write_text(_minimal_config(tmp_path / "out", data_root), encoding="utf-8")
+    result = subprocess.run(
+        [
+            str(binary),
             "run",
             "--config",
             str(cfg_path),

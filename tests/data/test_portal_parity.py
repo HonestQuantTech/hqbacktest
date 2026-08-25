@@ -81,6 +81,17 @@ def _memory_with_gaps() -> InMemoryDataPortal:
     p.add_bar(_make_bar("000001.SZ", "20240103", "20.50"))
     p.add_bar(_make_bar("000001.SZ", "20240104", "20.25"))
     p.add_bar(_make_bar("000001.SZ", "20240105", "21.00"))
+    # Factors mirror the bars: 600000.SH has factor rows for every
+    # trading day (so callers cannot infer a gap from a missing factor
+    # row — they would need to compare against `get_calendar`); 000001.SZ
+    # only carries factors on 20240102 / 20240105, exercising the
+    # in-window factor gap.
+    p.add_factor("600000.SH", "20240102", Decimal("1.0"))
+    p.add_factor("600000.SH", "20240103", Decimal("1.0"))
+    p.add_factor("600000.SH", "20240104", Decimal("1.0"))
+    p.add_factor("600000.SH", "20240105", Decimal("1.05"))
+    p.add_factor("000001.SZ", "20240102", Decimal("1.0"))
+    p.add_factor("000001.SZ", "20240105", Decimal("1.02"))
     return p
 
 
@@ -122,6 +133,16 @@ def _write_stock_daily(root: Path, date: str, rows: list[dict]) -> None:
     (target / f"{date}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_stock_factor(root: Path, date: str, rows: list[dict]) -> None:
+    """Each row: {symbol, date, factor}."""
+    target = root / "stock_factor"
+    target.mkdir(parents=True, exist_ok=True)
+    lines = ["symbol,date,factor"]
+    for row in rows:
+        lines.append(f"{row['symbol']},{row['date']},{row['factor']}")
+    (target / f"{date}.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _csv_with_gaps(tmp_path: Path) -> HqDataCsvPortal:
     """Same fixture as `_memory_with_gaps` but on disk.
 
@@ -130,6 +151,9 @@ def _csv_with_gaps(tmp_path: Path) -> HqDataCsvPortal:
       - stock_daily/20240103.csv only has 000001.SZ (600000.SH suspended).
       - stock_daily/20240104.csv only has 000001.SZ (600000.SH still suspended).
       - stock_daily/20240105.csv has both 600000.SH and 000001.SZ.
+      - stock_factor/{date}.csv mirrors the bar layout: 600000.SH
+        factors on every trading day, 000001.SZ factors on 20240102
+        and 20240105 only.
     """
     snap = tmp_path / "tushare"
     snap.mkdir(parents=True, exist_ok=True)
@@ -237,6 +261,29 @@ def _csv_with_gaps(tmp_path: Path) -> HqDataCsvPortal:
             },
         ],
     )
+    # Factors: 600000.SH on every trading day, 000001.SZ on 20240102
+    # and 20240105 only (matches `_memory_with_gaps`). Build each
+    # daily factor file in one pass — `_write_stock_factor` writes the
+    # whole file, so calling it multiple times for the same date
+    # would clobber earlier rows and break parity.
+    factor_rows = {
+        "20240102": [
+            {"symbol": "600000.SH", "date": "20240102", "factor": "1.0"},
+            {"symbol": "000001.SZ", "date": "20240102", "factor": "1.0"},
+        ],
+        "20240103": [
+            {"symbol": "600000.SH", "date": "20240103", "factor": "1.0"},
+        ],
+        "20240104": [
+            {"symbol": "600000.SH", "date": "20240104", "factor": "1.0"},
+        ],
+        "20240105": [
+            {"symbol": "600000.SH", "date": "20240105", "factor": "1.05"},
+            {"symbol": "000001.SZ", "date": "20240105", "factor": "1.02"},
+        ],
+    }
+    for date, rows in factor_rows.items():
+        _write_stock_factor(snap, date, rows)
     return HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
 
 
@@ -462,14 +509,118 @@ def test_bars_snapshot_missing_vs_per_symbol_missing_classification():
     assert issubclass(SnapshotFileMissingError, MissingDataError)
 
 
-def test_factor_rejects_zero_in_both_portals(tmp_path):
-    """Both portals reject non-positive factor values."""
-    from hqbacktest.data.errors import InvalidDataError as _I
+# ---------------------------------------------------------------------------
+# Factor parity (task 24: `test_factor_rejects_zero_in_memory_portal`
+# below only asserted the memory portal rejected 0 independently; it did
+# NOT exercise the parity of returned values. These tests run the same
+# fixture through both portals and assert identical return values /
+# exception types.)
+# ---------------------------------------------------------------------------
 
+
+def test_factor_window_returns_identical_series(tmp_path):
+    """Task 24: `get_factor` must return the same `(date, factor)` list
+    on both portals for the same fixture (mirrors `test_bars_*_agrees`).
+    """
+    mem = _memory_with_gaps()
+    csv = _csv_with_gaps(tmp_path)
+    mem_factors = mem.get_factor("600000.SH", "20240102", "20240105")
+    csv_factors = csv.get_factor("600000.SH", "20240102", "20240105")
+    # Convert Decimal tuples to comparable lists so we don't get bitten
+    # by Decimal identity vs equality across portals.
+    assert [(d, str(f)) for d, f in mem_factors] == [
+        (d, str(f)) for d, f in csv_factors
+    ]
+    assert [d for d, _ in mem_factors] == [
+        "20240102",
+        "20240103",
+        "20240104",
+        "20240105",
+    ]
+
+
+def test_factor_per_symbol_gap_matches_between_portals(tmp_path):
+    """Task 24: a symbol with a sparse factor series (factors on
+    20240102 and 20240105 only) must return the SAME two rows on both
+    portals — not raise, not silently extend to every calendar entry.
+    """
+    mem = _memory_with_gaps()
+    csv = _csv_with_gaps(tmp_path)
+    mem_factors = mem.get_factor("000001.SZ", "20240102", "20240105")
+    csv_factors = csv.get_factor("000001.SZ", "20240102", "20240105")
+    assert [(d, str(f)) for d, f in mem_factors] == [
+        (d, str(f)) for d, f in csv_factors
+    ]
+    assert [d for d, _ in mem_factors] == ["20240102", "20240105"]
+
+
+def test_factor_empty_when_symbol_never_listed(tmp_path):
+    """Task 24: a symbol absent from both `stock_list` and the factor
+    files returns `[]` on both portals.
+    """
+    mem = _memory_with_gaps()
+    csv = _csv_with_gaps(tmp_path)
+    assert mem.get_factor("999999.SH", "20240102", "20240105") == []
+    assert csv.get_factor("999999.SH", "20240102", "20240105") == []
+
+
+def test_factor_rejects_window_start_after_end_for_both(tmp_path):
+    mem = _memory_with_gaps()
+    csv = _csv_with_gaps(tmp_path)
+    with pytest.raises(InvalidDataError):
+        mem.get_factor("600000.SH", "20240105", "20240102")
+    with pytest.raises(InvalidDataError):
+        csv.get_factor("600000.SH", "20240105", "20240102")
+
+
+def test_factor_rejects_bad_symbol_for_both(tmp_path):
+    mem = _memory_with_gaps()
+    csv = _csv_with_gaps(tmp_path)
+    with pytest.raises(InvalidDataError):
+        mem.get_factor("not-a-symbol", "20240102", "20240105")
+    with pytest.raises(InvalidDataError):
+        csv.get_factor("not-a-symbol", "20240102", "20240105")
+
+
+def test_factor_distinguishes_snapshot_missing_from_per_symbol_gap(
+    tmp_path,
+):
+    """Task 24: the parity invariant for `get_factor` mirrors
+    `get_bars` — a missing whole-day `stock_factor/{D}.csv` raises
+    `SnapshotFileMissingError`, while a per-symbol gap is silently
+    omitted from the result.
+    """
+    snap = tmp_path / "tushare"
+    snap.mkdir()
+    _write_calendar(
+        snap,
+        [("20240102", "Y"), ("20240103", "Y")],
+    )
+    _write_stock_list(snap, "20240102", ["600000.SH"])
+    _write_stock_factor(
+        snap,
+        "20240102",
+        [{"symbol": "600000.SH", "date": "20240102", "factor": "1.0"}],
+    )
+    # NOTE: no 20240103.csv at all
+    csv = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
+    with pytest.raises(SnapshotFileMissingError):
+        csv.get_factor("600000.SH", "20240102", "20240103")
+
+
+def test_factor_rejects_zero_in_memory_portal():
+    """The memory portal rejects a non-positive factor at construction
+    time (`add_factor`).
+
+    The CSV portal's equivalent rejection lives in
+    `tests/data/test_hqdata_portal.py` (where the daily CSV fixture
+    already exists); both funnel through the same `Decimal`-positive
+    validation in the data module, so no separate parity test is
+    needed for this path.
+    """
     mem = InMemoryDataPortal(calendar=["20240102"], as_of="20240102")
-    with pytest.raises(_I):
+    with pytest.raises(InvalidDataError):
         mem.add_factor("600000.SH", "20240102", Decimal("0"))
-    # CSV-side invalid factor is exercised in test_hqdata_portal.py.
 
 
 # ---------------------------------------------------------------------------

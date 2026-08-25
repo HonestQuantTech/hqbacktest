@@ -218,27 +218,46 @@ def test_single_day_volatility_is_none():
     assert any("requires >= 2" in n for n in m.notes)
 
 
-def test_two_day_volatility_is_none_when_only_one_return():
-    """A 2-day equity curve has exactly one daily return -> stdev on a
-    single value raises StatisticsError; the metric must be `None`,
-    not 0, and `sharpe_ratio` must therefore also be `None`.
+def test_two_day_volatility_uses_both_daily_returns():
+    """Task 23: a 2-day equity curve with two distinct daily returns
+    must produce a non-`None` `daily_volatility`.
+
+    Hand-calculated scenario:
+        Day 1: total_equity = 91000 (down 9% from 100000)
+               -> daily_return = -0.09
+        Day 2: total_equity = 96005 (up 5.5% from 91000)
+               -> daily_return = +0.055
+
+    Pre-fix: `_daily_returns` re-derived the series from
+    `total_equity`, with `[Decimal("0")]` as the day-0 seed, so the
+    day-1 return was silently dropped. With only one return in
+    `returns[1:]` stdev failed -> `daily_volatility is None`.
+
+    Post-fix: `compute_metrics` reads `EquityPoint.daily_return`
+    directly, so both samples reach the stdev call:
+        stdev([-0.09, 0.055], ddof=1) = sqrt(((−0.0725)² + 0.0725²) / 1)
+                                    = sqrt(0.0105125)
+                                    ≈ 0.102531...
+
+    The contract: `daily_volatility` MUST see first-day P&L the same
+    way `max_drawdown` does (task 17 already wired that side).
     """
     eq = [
         EquityPoint(
             "20240102",
-            Decimal("100000"),
+            Decimal("91000"),
             Decimal("0"),
-            Decimal("100000"),
-            Decimal("0"),
-            Decimal("0"),
+            Decimal("91000"),
+            Decimal("-0.09"),
+            Decimal("0.09"),
         ),
         EquityPoint(
             "20240103",
-            Decimal("90000"),
+            Decimal("96005"),
             Decimal("0"),
-            Decimal("110000"),
-            Decimal("0.10"),
-            Decimal("0"),
+            Decimal("96005"),
+            Decimal("0.055"),
+            Decimal("0.04"),
         ),
     ]
     m = compute_metrics(
@@ -247,9 +266,24 @@ def test_two_day_volatility_is_none_when_only_one_return():
         initial_cash=Decimal("100000"),
         config=MetricsConfig(),
     )
-    assert m.daily_volatility is None
-    assert m.sharpe_ratio is None
-    assert any("requires >= 2" in n for n in m.notes)
+    # Both samples reached stdev -> volatility is defined.
+    assert m.daily_volatility is not None
+    # Hand-calculated value: sqrt(0.0105125) ≈ 0.102531
+    expected = Decimal("0.10253")
+    diff = abs(m.daily_volatility - expected)
+    assert diff < Decimal(
+        "0.0001"
+    ), f"daily_volatility={m.daily_volatility} != {expected} (diff={diff})"
+    # Annualised volatility = daily * sqrt(252).
+    from math import sqrt
+
+    expected_ann = m.daily_volatility * Decimal(str(sqrt(252)))
+    assert abs(m.annualized_volatility - expected_ann) < Decimal("0.0001")
+    # Total return = 96005 / 100000 - 1 = -0.03995
+    assert abs(m.total_return - Decimal("-0.03995")) < Decimal("0.000001")
+    # Chained-product identity: ∏(1 + daily_return) == 1 + total_return
+    chained = (Decimal("1") + Decimal("-0.09")) * (Decimal("1") + Decimal("0.055"))
+    assert abs(chained - (Decimal("1") + m.total_return)) < Decimal("0.0001")
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,152 @@ All notable changes to `hqbacktest` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-08-25
+
+Documentation-and-test-coverage hotfix for v0.1.3 (review findings
+addressed as task 24 in [TODO.md](./TODO.md)). All changes are
+backward-compatible unless called out below. No public API
+changes; this release closes documentation/test gaps and aligns
+comments with Python language semantics.
+
+### Fixed
+- **`get_factor` parity (task 24.1).**
+  `tests/data/test_portal_parity.py` previously asserted only that
+  the memory portal rejected zero-valued factors; the CSV portal's
+  equivalent behaviour lived in a separate file, and no test ever
+  ran the same fixture through both portals to assert identical
+  `(date, factor)` tuples. Six new parity tests now cover the full
+  `get_factor` contract: window returns identical series, per-symbol
+  factor gap matches, empty-when-never-listed matches, window
+  `start > end` raises `InvalidDataError` in both, bad symbol
+  rejected in both, and `SnapshotFileMissingError` vs per-symbol gap
+  remains distinguishable. The memory fixture now carries factor
+  rows that mirror the new CSV fixture (600000.SH on every trading
+  day, 000001.SZ on 20240102 and 20240105 only).
+- **`get_bar(symbol, date)` reference removed (task 24.2).**
+  `docs/design/mvp-contract.md` §3.3 referenced a `get_bar(symbol,
+  date)` single-point query method that has never existed on
+  `MarketDataPortal` (only `get_bars(symbol, start, end)` and
+  `current_price(symbol)`). The failure classification rows for
+  "individual-day missing vs whole-day snapshot missing" are real
+  and correct, but belong to `get_bars` / `current_price` — they
+  have been merged into a single `get_bars` / `get_factor` failure
+  classification row that explicitly notes the protocol has no
+  `get_bar` method.
+- **`DataView.portal` privacy wording (task 24.3).**
+  Both `data_view.py` (class docstring + `__init__` comment) and
+  `mvp-contract.md` §3.6 used phrasing that implied the
+  `_portal` underscore was a language-level guarantee ("strategies
+  cannot reach the raw portal"). This was inaccurate — Python has
+  no language-level private attributes; a sufficiently determined
+  caller can still reach `_portal` directly. The comments now
+  describe the leading-underscore as a strong social convention and
+  acknowledge the Python limitation honestly, while keeping the
+  `AttributeError` on the public name and the recommendation to go
+  through `history` / `current_price` / `universe`.
+
+### Added (test infrastructure)
+- **`tests/data/test_portal_parity.py`:** 6 new parity tests for
+  `get_factor` (see above). Total parity coverage now spans calendar,
+  universe, bars, **and** factor — no "API claimed parity but missing"
+  gap.
+
+### Internal cleanup (closing v0.1.4's "v0.1.4 之后可考虑" item)
+- **Sentinel constant convergence.** The `"00000000"` "no history"
+  sentinel was previously defined as three differently-named constants
+  in three places (`data.data_view.NO_HISTORY_SENTINEL`,
+  `data.validators.SENTINEL_NO_HISTORY`,
+  `engine.scheduler.NO_HISTORY_VISIBLE_THROUGH`). They are now
+  collapsed to a single definition (`data.validators.SENTINEL_NO_HISTORY`)
+  re-exported through `hqbacktest.data.SENTINEL_NO_HISTORY`. The other
+  two call sites import that name directly. Single source of truth;
+  no behavioral change.
+- **`test_version_matches_pyproject` hardening.** Beyond the
+  byte-equality check, the test now also guards two release-time footguns:
+  (a) `__version__` / `pyproject.toml [project].version` must not have
+  stray whitespace; (b) both values must match the `N.N[.N...]` semver
+  shape (rejects e.g. `"v0.1.4"` or an empty placeholder). Reverse
+  validation confirmed the test fails on `"  "` (whitespace) and on
+  `"v0.1.4"` (semver shape) before the next release.
+
+## [0.1.3] - 2026-08-25
+
+Correctness hotfix for v0.1.2 (review findings addressed as task 23
+in [TODO.md](./TODO.md)). All changes are backward-compatible
+unless called out below.
+
+### Fixed
+- **Volatility / Sharpe now see the first trading day (task 23).**
+  `metrics.compute_metrics` previously re-derived the daily-return
+  series from `EquityPoint.total_equity` with `[Decimal("0")]` as
+  the day-0 seed; the day-0 return was therefore **silently
+  dropped** before reaching `stdev`. A 2-day backtest with one real
+  day-1 return therefore reported `daily_volatility=None` even
+  though `max_drawdown` saw the day-0 loss correctly — a "drawdown
+  sees it, volatility doesn't" discrepancy. The fix reads
+  `EquityPoint.daily_return` directly (the same value the engine
+  already anchored to `initial_cash`, task 17), so the volatility,
+  annualised volatility and Sharpe ratio now agree with
+  `max_drawdown` on what counts as a "first day". The dead-code
+  helper `_drawdown_series` (unused since task 17 wired
+  `max_drawdown` straight from `EquityPoint.drawdown`) was also
+  deleted so the same zero-seed defect cannot reappear via a
+  future accidental caller. The pre-fix regression test
+  `test_two_day_volatility_is_none_when_only_one_return` was
+  removed: it asserted `None` based on the bug. A new
+  hand-calculated regression test (`test_two_day_volatility_uses_both_daily_returns`)
+  pins the corrected behaviour (2 days at -9% / +5.5% ->
+  `daily_volatility` ≈ 0.10253).
+
+## [0.1.2] - 2026-08-25
+
+Documentation-and-correctness hotfix for v0.1.1 (review findings
+addressed as task 22 in [TODO.md](./TODO.md)). All changes are
+backward-compatible unless called out below.
+
+### Fixed
+- **`source` accepts absolute paths (task 22.1).**
+  `resolve_source_location` now splits an absolute path
+  (e.g. `~/.hqdata/tushare`) into `(parent_dir, basename)` and pairs
+  the bare-name form (`"tushare"`) with `[data].data_root` as before.
+  Relative paths like `"foo/bar"` are still rejected to avoid
+  cwd-relative ambiguity. Behavior of the bare-name form is
+  unchanged.
+- **`run_metadata.json` no longer leaks absolute local paths
+  (task 22.2).** `config_path`, `output_directory`, and
+  `config_output_directory` are written as paths relative to the
+  run-time cwd (via `os.path.relpath`). Token / env-var / absolute-
+  path leak coverage in `test_runner_does_not_write_secrets` was
+  extended to assert these field-level invariants; the previous
+  assertion only scanned for an explicit token string.
+- **Impossible calendar dates are now rejected by
+  `validate_yyyymmdd` (task 22.3).** 8-digit strings like `20241399`
+  (month 13), `20240230` (Feb 30), `20240132` (Jan 32), `20230229`
+  (Feb 29 in a non-leap year) are now caught by the validator using
+  `datetime.strptime`. The sentinel `"00000000"` is preserved for
+  the first-trading-day case. The prior regression test
+  `test_start_date_impossible_rejected` set `end_date` to a
+  lex-smaller string so it triggered the `start > end` ordering
+  check, not the impossible-date check — that test was a false
+  positive and has been rewritten to use a lex-greater real date so
+  it exercises the intended failure mode. As a side-effect, the
+  task-15 perf fixture generator (which used an integer counter whose
+  `d % 100 == 32` skip only caught the day-32 rollover after a 31-day
+  month, so it emitted impossible dates like `20240230`) was rewritten
+  to iterate via `datetime.timedelta`.
+- **Documentation honesty (task 22.4):**
+  `pyproject.toml:26` no longer claims "no runtime deps yet" — the
+  line was adjacent to the already-declared `pandas` / `tomli`
+  dependencies. The CLI test previously named
+  `test_console_script_runs_end_to_end` but actually ran via
+  `python -m hqbacktest` (its own docstring admitted this); the
+  rename to `test_python_m_runs_end_to_end` makes the contract
+  obvious, and a new sibling `test_console_script_runs_end_to_end`
+  invokes the installed `hqbacktest` console-script binary (skipping
+  gracefully on machines where `pip install -e .` has not been run).
+  README's "26 项 CLI 测试" call-out was removed in favour of a
+  reference to `tests/cli/`, so the count never goes stale.
+
 ## [0.1.1] - 2026-08-25
 
 Patch release that hardens `hqbacktest` against the v0.1 real-data
@@ -47,8 +193,8 @@ backward-compatible unless called out below.
   `@dataclass(frozen=True)` with `fill_ids: tuple[str, ...]`; strategies
   cannot mutate Order objects returned from `Context.pending_orders()`.
   `DataView.portal` is now a private `_portal` field; strategies cannot
-  bypass `visible_through`. `set_universe(...)` enforces trading scope;
-  orders outside the universe are rejected with
+  reach it to read future data. `set_universe(...)` enforces trading
+  scope; orders outside the universe are rejected with
   `RejectReason.OUT_OF_UNIVERSE`. New `Context.historical_universe()`
   returns the historical stock list through the guarded data view.
 - **Factor diagnostics on holdings (task 19):** the engine runs
@@ -66,8 +212,11 @@ backward-compatible unless called out below.
   directory and the current working directory to `sys.path` so the
   strategy module can be resolved by name alone (matching
   `python -m hqbacktest run`). Config validation rejects `nan` /
-  `inf` / float `initial_cash`, impossible calendar dates, and
-  empty trading-day windows with single-line `ConfigError` (CLI exit 2).
+  `inf` / float `initial_cash` and empty trading-day windows with
+  single-line `ConfigError` (CLI exit 2). Impossible calendar dates
+  such as `20241399` or `20240230` are now rejected by
+  `validate_yyyymmdd` itself, not just by the `start > end` ordering
+  check (task 22.3).
   Output directories that already contain prior-run files are rejected
   with exit 3; `--force` overrides. `Context.order_value` accepts
   `int` / `str` cash amounts. `run_metadata.json`'s `git_commit` now

@@ -38,6 +38,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import os
+
 import pandas as pd
 
 from ..domain.bar import Bar
@@ -62,13 +64,49 @@ DEFAULT_DATA_ROOT = "~/.hqdata"
 def resolve_source_location(
     source: str, default_data_root: str = DEFAULT_DATA_ROOT
 ) -> Tuple[str, str]:
-    """Map a source directory name to `(data_root, source_name)`."""
+    """Map a source reference to `(data_root, source_name)`.
+
+    Per task 22.1, `source` may be either:
+
+    * a bare directory name (e.g. ``"tushare"``). It is paired with
+      ``default_data_root`` (the ``[data].data_root`` config, default
+      ``~/.hqdata``).
+    * an absolute path to the snapshot directory itself, with ``~``
+      expansion (e.g. ``"~/.hqdata/tushare"`` or
+      ``"/home/<user>/.hqdata/tushare"``). It is split into
+      ``(parent_dir, basename)``.
+
+    Relative paths that mix both forms (``"foo/bar"``) are rejected:
+    cwd-relative resolution is ambiguous for backtests and is never
+    relied on. Empty strings, ``.``, ``..``, and the filesystem root
+    are also rejected.
+    """
     if not isinstance(source, str) or not source:
         raise InvalidDataError("source", "must be a non-empty string")
-    if Path(source).name != source or source in (".", ".."):
+    if source in (".", "..", "/"):
         raise InvalidDataError(
             "source",
-            "must be a directory name; configure its parent with data_root",
+            f"must be a directory name or absolute path; got {source!r}",
+        )
+    # Expand `~` so `~/.hqdata/tushare` is treated as an absolute path
+    # on every platform. `expanduser` is a no-op for strings without `~`.
+    expanded = os.path.expanduser(source)
+    p = Path(expanded)
+    if p.is_absolute():
+        if p.name in ("", ".", ".."):
+            raise InvalidDataError(
+                "source",
+                "absolute path {!r} resolves to invalid directory "
+                "name {!r}".format(source, p.name),
+            )
+        return (str(p.parent), p.name)
+    # Bare name (no path separators). Pair with `default_data_root`.
+    if "/" in source or "\\" in source:
+        raise InvalidDataError(
+            "source",
+            "must be a directory name or an absolute path; got "
+            "relative path {!r} (configure its parent with data_root "
+            "or pass an absolute path instead)".format(source),
         )
     return (default_data_root, source)
 

@@ -487,7 +487,7 @@ def test_set_universe_locked_after_initialize():
         ctx.set_universe(["600000.SH"])
 
 
-def test_order_type_allow_list_cannot_be_bypassed_via_helpers():
+def test_order_type_allow_list_cannot_be_skipped_via_helpers():
     """Contract rule 7: every order path must reject non-MARKET types."""
     ctx, _, _ = _ctx()
     with pytest.raises(UnsupportedOrderTypeError):

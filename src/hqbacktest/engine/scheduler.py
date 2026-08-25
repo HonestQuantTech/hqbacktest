@@ -18,6 +18,7 @@ from typing import Callable, List, Optional
 from ..data.data_view import DataView
 from ..data.errors import MissingDataError
 from ..data.portal import MarketDataPortal
+from ..data.validators import SENTINEL_NO_HISTORY
 from ..domain.enums import EventType
 from ..domain.order import Order
 from .context import Context
@@ -35,11 +36,6 @@ OpenMatchCallback = Callable[[str, List[Order], "Context"], None]
 # "use the previous trading day" at run time.
 PRE_BAR_VISIBLE_THROUGH = "PREVIOUS_TRADING_DAY"
 SAME_DAY_VISIBLE_THROUGH = "SAME_DAY"
-
-# Sentinel used as `visible_through` on the first trading day, when no prior
-# trading day exists. It is a valid-format YYYYMMDD string strictly earlier
-# than any real date, so the view is legal but exposes no bars.
-NO_HISTORY_VISIBLE_THROUGH = "00000000"
 
 
 @dataclass(frozen=True)
@@ -96,7 +92,7 @@ def build_view(
             # the view legal but exposes no data.
             return DataView(
                 portal=portal,
-                visible_through=NO_HISTORY_VISIBLE_THROUGH,
+                visible_through=SENTINEL_NO_HISTORY,
             )
         return DataView(portal=portal, visible_through=prev)
     raise ValueError(f"unknown visible_through mode: {schedule.visible_through_mode}")

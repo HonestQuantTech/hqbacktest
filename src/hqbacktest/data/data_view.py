@@ -30,7 +30,7 @@ from .errors import (
     SnapshotFileMissingError,
 )
 from .portal import MarketDataPortal
-from .validators import validate_symbol, validate_yyyymmdd
+from .validators import SENTINEL_NO_HISTORY, validate_symbol, validate_yyyymmdd
 
 VALID_FIELDS = ("open", "high", "low", "close", "volume")
 DEFAULT_HISTORY_START = "19000101"
@@ -40,10 +40,10 @@ DEFAULT_HISTORY_START = "19000101"
 # covers roughly a month of holidays plus one typical multi-day suspension.
 CURRENT_PRICE_LOOKBACK = 20
 
-# Sentinel value used by the scheduler when no prior trading day exists yet.
-# Any explicit "00000000" request must be treated as "no data visible"
-# rather than as a literal date lookup.
-NO_HISTORY_SENTINEL = "00000000"
+# The "no history yet" sentinel ("00000000") is defined once, in
+# `validators`, as `SENTINEL_NO_HISTORY` (single source of truth) and
+# imported at the top of this module. Every `visible_through` /
+# `universe_start` comparison below references that one constant.
 
 
 @dataclass
@@ -54,13 +54,23 @@ class DataView:
     Together with `visible_through`, it forms the half-open window
     `[universe_start, visible_through]` that all reads are restricted to.
 
-    `visible_through="00000000"` is a legal sentinel that exposes no data:
+    `visible_through="00000000"` is a legal sentinel (see
+    `SENTINEL_NO_HISTORY` in `validators`) that exposes no data:
     `history(...)` returns `[]` and `current_price(...)` returns `None`.
 
-    Task 18: the `portal` attribute is **private** (name-mangled to
-    `_portal`). Strategies cannot reach the raw `MarketDataPortal` and
-    bypass `visible_through` via `view.portal.get_bars(...)`. All
-    data-layer access goes through the guarded methods on this view.
+    Task 18: the `portal` attribute is **private** (renamed to
+    `_portal` as a leading-underscore convention). Strategies cannot
+    reach the raw `MarketDataPortal` through its public API — i.e.
+    `view.portal` raises `AttributeError` because the attribute is no
+    longer named `portal`. The leading underscore is a strong social
+    convention ("do not touch from outside"), not a language-level
+    guarantee: a sufficiently determined strategy could still reach
+    the portal via `view._portal` (and from there `context._data_view._portal`).
+    That is a Python language limitation (there is no real private
+    attribute), not a project defect; we rely on the social convention
+    plus contract tests to keep strategies honest. All
+    contract-compliant data access goes through the guarded methods on
+    this view.
     The constructor still accepts `portal=...` (kwarg) so existing
     call sites don't break, but the value is stored only on the
     private field and is never re-exposed.
@@ -78,7 +88,8 @@ class DataView:
     ) -> None:
         # Accept `portal=` for backward compatibility, but store it on
         # the private `_portal` field. Strategies that try to read
-        # `view.portal` get `AttributeError` (task 18 isolation).
+        # `view.portal` get `AttributeError` (the public attribute is
+        # gone; see the class docstring for the privacy contract).
         self._portal = portal
         self.visible_through = visible_through
         self.universe_start = universe_start
@@ -86,36 +97,36 @@ class DataView:
 
     def __post_init__(self) -> None:
         # The sentinel "00000000" is allowed as a special value.
-        if self.visible_through == NO_HISTORY_SENTINEL:
+        if self.visible_through == SENTINEL_NO_HISTORY:
             if (
                 self.universe_start is not None
-                and self.universe_start != NO_HISTORY_SENTINEL
+                and self.universe_start != SENTINEL_NO_HISTORY
             ):
                 raise FutureDataAccessError(self.universe_start, self.visible_through)
             return
         validate_yyyymmdd(self.visible_through, name="visible_through")
         if self.universe_start is not None:
-            if self.universe_start == NO_HISTORY_SENTINEL:
+            if self.universe_start == SENTINEL_NO_HISTORY:
                 raise FutureDataAccessError(self.universe_start, self.visible_through)
             validate_yyyymmdd(self.universe_start, name="universe_start")
             if self.universe_start > self.visible_through:
                 raise FutureDataAccessError(self.universe_start, self.visible_through)
 
     def _guard(self, requested: str) -> None:
-        """Reject queries that escape the visibility window.
+        """Reject queries that ask for dates outside the visibility window.
 
         `00000000` is always considered to lie outside the visible window
         because the portal never indexes dates earlier than its first
         snapshot day; passing it through would force every underlying call
         to scan the full pre-start history.
         """
-        if requested == NO_HISTORY_SENTINEL:
+        if requested == SENTINEL_NO_HISTORY:
             raise FutureDataAccessError(requested, self.visible_through)
         if requested > self.visible_through:
             raise FutureDataAccessError(requested, self.visible_through)
         if (
             self.universe_start is not None
-            and self.universe_start != NO_HISTORY_SENTINEL
+            and self.universe_start != SENTINEL_NO_HISTORY
             and requested < self.universe_start
         ):
             # Reading before the data start is NOT future-data access; the
@@ -131,14 +142,14 @@ class DataView:
 
     def get_bars(self, symbol: str, start: str, end: str) -> List:
         # Sentinel view: empty by construction.
-        if self.visible_through == NO_HISTORY_SENTINEL:
+        if self.visible_through == SENTINEL_NO_HISTORY:
             return []
         self._guard(start)
         self._guard(end)
         return self._portal.get_bars(symbol, start, end)
 
     def get_factor(self, symbol: str, start: str, end: str):
-        if self.visible_through == NO_HISTORY_SENTINEL:
+        if self.visible_through == SENTINEL_NO_HISTORY:
             return []
         self._guard(start)
         self._guard(end)
@@ -148,7 +159,7 @@ class DataView:
         self, date: Optional[str] = None, include_bj: bool = False
     ) -> List[str]:
         target = self.visible_through if date is None else date
-        if self.visible_through == NO_HISTORY_SENTINEL:
+        if self.visible_through == SENTINEL_NO_HISTORY:
             return []
         self._guard(target)
         return self._portal.get_universe(target, include_bj=include_bj)
@@ -182,7 +193,7 @@ class DataView:
             raise ValueError(f"field must be one of {VALID_FIELDS}, got {field!r}")
         if bar_count <= 0:
             raise ValueError(f"bar_count must be positive, got {bar_count}")
-        if self.visible_through == NO_HISTORY_SENTINEL:
+        if self.visible_through == SENTINEL_NO_HISTORY:
             return []
         # Cap the lookback to bar_count trading days so we never ask the
         # portal for the full pre-start history of every symbol. The cap
@@ -190,7 +201,7 @@ class DataView:
         # requested number of values.
         if (
             self.universe_start is not None
-            and self.universe_start != NO_HISTORY_SENTINEL
+            and self.universe_start != SENTINEL_NO_HISTORY
         ):
             start = self.universe_start
         else:
@@ -233,7 +244,7 @@ class DataView:
         while preserving the 20-**trading-day** lookback bound.
         """
         validate_symbol(symbol)
-        if self.visible_through == NO_HISTORY_SENTINEL:
+        if self.visible_through == SENTINEL_NO_HISTORY:
             return None
         # Resolve the 20-trading-day cutoff. The lookback is bounded by
         # trading days, NOT by bar count: a symbol suspended for longer
