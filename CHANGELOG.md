@@ -5,6 +5,74 @@ All notable changes to `hqbacktest` are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.4] - 2026-08-25
+
+Documentation-and-test-coverage hotfix for v0.1.3 (review findings
+addressed as task 24 in [TODO.md](./TODO.md)). All changes are
+backward-compatible unless called out below. No public API
+changes; this release closes documentation/test gaps and aligns
+comments with Python language semantics.
+
+### Fixed
+- **`get_factor` parity (task 24.1).**
+  `tests/data/test_portal_parity.py` previously asserted only that
+  the memory portal rejected zero-valued factors; the CSV portal's
+  equivalent behaviour lived in a separate file, and no test ever
+  ran the same fixture through both portals to assert identical
+  `(date, factor)` tuples. Six new parity tests now cover the full
+  `get_factor` contract: window returns identical series, per-symbol
+  factor gap matches, empty-when-never-listed matches, window
+  `start > end` raises `InvalidDataError` in both, bad symbol
+  rejected in both, and `SnapshotFileMissingError` vs per-symbol gap
+  remains distinguishable. The memory fixture now carries factor
+  rows that mirror the new CSV fixture (600000.SH on every trading
+  day, 000001.SZ on 20240102 and 20240105 only).
+- **`get_bar(symbol, date)` reference removed (task 24.2).**
+  `docs/design/mvp-contract.md` §3.3 referenced a `get_bar(symbol,
+  date)` single-point query method that has never existed on
+  `MarketDataPortal` (only `get_bars(symbol, start, end)` and
+  `current_price(symbol)`). The failure classification rows for
+  "individual-day missing vs whole-day snapshot missing" are real
+  and correct, but belong to `get_bars` / `current_price` — they
+  have been merged into a single `get_bars` / `get_factor` failure
+  classification row that explicitly notes the protocol has no
+  `get_bar` method.
+- **`DataView.portal` privacy wording (task 24.3).**
+  Both `data_view.py` (class docstring + `__init__` comment) and
+  `mvp-contract.md` §3.6 used phrasing that implied the
+  `_portal` underscore was a language-level guarantee ("strategies
+  cannot reach the raw portal"). This was inaccurate — Python has
+  no language-level private attributes; a sufficiently determined
+  caller can still reach `_portal` directly. The comments now
+  describe the leading-underscore as a strong social convention and
+  acknowledge the Python limitation honestly, while keeping the
+  `AttributeError` on the public name and the recommendation to go
+  through `history` / `current_price` / `universe`.
+
+### Added (test infrastructure)
+- **`tests/data/test_portal_parity.py`:** 6 new parity tests for
+  `get_factor` (see above). Total parity coverage now spans calendar,
+  universe, bars, **and** factor — no "API claimed parity but missing"
+  gap.
+
+### Internal cleanup (closing v0.1.4's "v0.1.4 之后可考虑" item)
+- **Sentinel constant convergence.** The `"00000000"` "no history"
+  sentinel was previously defined as three differently-named constants
+  in three places (`data.data_view.NO_HISTORY_SENTINEL`,
+  `data.validators.SENTINEL_NO_HISTORY`,
+  `engine.scheduler.NO_HISTORY_VISIBLE_THROUGH`). They are now
+  collapsed to a single definition (`data.validators.SENTINEL_NO_HISTORY`)
+  re-exported through `hqbacktest.data.SENTINEL_NO_HISTORY`. The other
+  two call sites import that name directly. Single source of truth;
+  no behavioral change.
+- **`test_version_matches_pyproject` hardening.** Beyond the
+  byte-equality check, the test now also guards two release-time footguns:
+  (a) `__version__` / `pyproject.toml [project].version` must not have
+  stray whitespace; (b) both values must match the `N.N[.N...]` semver
+  shape (rejects e.g. `"v0.1.4"` or an empty placeholder). Reverse
+  validation confirmed the test fails on `"  "` (whitespace) and on
+  `"v0.1.4"` (semver shape) before the next release.
+
 ## [0.1.3] - 2026-08-25
 
 Correctness hotfix for v0.1.2 (review findings addressed as task 23

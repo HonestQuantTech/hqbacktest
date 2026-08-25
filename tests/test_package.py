@@ -22,7 +22,8 @@ def test_version_is_non_empty_string():
 
 def test_version_matches_pyproject():
     """`hqbacktest.__version__` MUST match the `version` field in
-    `pyproject.toml`.
+    `pyproject.toml`, AND both must look like a real release version
+    (not e.g. an empty placeholder or a string with stray whitespace).
 
     Task 22 / 23 review (2026-08-25): the prior version-sync guard
     was `test_version_is_non_empty_string`, which only asserted that
@@ -61,6 +62,22 @@ def test_version_matches_pyproject():
         f"could not locate `version = " "in [project] of {pyproject_path}"
     )
     pyproject_version = match.group(1)
+    # Shape guard: reject obvious garbage like "", "  ", "v0.1.0" or
+    # "0.1" so a typo at release time is caught before `run_metadata.json`
+    # is shipped with a meaningless version. PEP 440 release segments
+    # look like `\d+(\.\d+)*`; we don't enforce the full spec, just
+    # the shape that has held since v0.1.
+    semver_shape = re.compile(r"^\d+(\.\d+)*$")
+    for label, value in (
+        ("hqbacktest.__version__", hqbacktest.__version__),
+        ("pyproject.toml [project].version", pyproject_version),
+    ):
+        assert value == value.strip(), f"{label}={value!r} has stray whitespace"
+        assert semver_shape.match(value), (
+            f"{label}={value!r} does not look like N.N[.N...] (got "
+            f"semver-shape regex check); update `test_version_matches_pyproject`"
+            f" if a non-numeric segment (rc/post/dev) is now in use"
+        )
     assert hqbacktest.__version__ == pyproject_version, (
         f"version drift: hqbacktest.__version__={hqbacktest.__version__!r} "
         f"but pyproject.toml [project].version={pyproject_version!r}; "

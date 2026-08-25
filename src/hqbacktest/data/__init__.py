@@ -23,6 +23,7 @@ from .hqdata_portal import (
 from .memory_portal import InMemoryDataPortal
 from .portal import DataVersion, MarketDataPortal
 from .validators import (
+    SENTINEL_NO_HISTORY,
     assert_unique_sorted,
     require_columns,
     validate_decimal_series,
@@ -43,6 +44,7 @@ __all__ = [
     "InvalidDataError",
     "MarketDataPortal",
     "MissingDataError",
+    "SENTINEL_NO_HISTORY",
     "SnapshotFileMissingError",
     "UnknownSymbolError",
     "assert_unique_sorted",

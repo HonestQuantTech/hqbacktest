@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hqbacktest"
-version = "0.1.3"
+version = "0.1.4"
 description = "A股量化策略回测与交易模拟引擎"
 readme = "README.md"
 authors = [

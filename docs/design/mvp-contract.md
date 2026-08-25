@@ -143,7 +143,7 @@
 | 维度 | v0.1 默认决定 |
 | --- | --- |
 | `get_bars(symbol, start, end)` | 返回窗口内实际存在的行，**允许逐日间隙**；窗口内无任何行返回 `[]` 而非报错。 |
-| `get_bar(symbol, date)` 失败分类 | 个股当日缺行（停牌 / 未上市 / 已退市） → 返回「无当日行情」的空结果；**整日快照文件缺失** → `SnapshotFileMissingError`（`MissingDataError` 子类），引擎不得当作「该股无价」处理。 |
+| `get_bars` / `get_factor` 失败分类 | 个股当日缺行（停牌 / 未上市 / 已退市）→ 静默从结果集中省略（窗口内可能有 N 行，绝不报错）；**整日快照文件缺失** → `SnapshotFileMissingError`（`MissingDataError` 子类），引擎不得当作「该股无价」处理，必须以 `DATA_ERROR` 中止本次运行。`MarketDataPortal` **没有**单点 `get_bar(symbol, date)` 接口——单日查询由 `current_price(symbol)` 与 `get_bars(symbol, d, d)` 共同覆盖。 |
 | `current_price(symbol)` | 返回截至 `visible_through` 的最近一个有效收盘价，**回看上限 20 个交易日**，超出返回 `None`；停牌持仓按最近收盘估值并记录 `DATA_WARNING` 事件，禁止静默按 0 计入。 |
 | 首个交易日盘前（`visible_through="00000000"`） | `history` 返回 `[]`、`current_price` 返回 `None`，**不抛异常**。 |
 | `get_universe(date)` | **按精确日期查询**，不做向前回退；`.BJ`（北交所）股票默认过滤，可通过 `include_bj=True` 保留。 |
@@ -183,7 +183,7 @@
 | 维度 | v0.1 默认决定 |
 | --- | --- |
 | `Order` 不可变 | `@dataclass(frozen=True)`，`fill_ids: tuple[str, ...]`；策略收到 `pending_orders()` 后无法修改任何字段（quantity / avg_fill_price / fill_ids 等）；`transition` / `record_fill` 用 `object.__setattr__` 写入冻结字段，仅 engine / broker 可调用。 |
-| `DataView.portal` 私有 | 字段名 `_portal`（下划线私有约定），**策略无法**通过 `view.portal.get_bars(sym, future_date)` 读到 `visible_through` 之后的数据；所有数据访问走 `view.history` / `view.current_price` / `view.universe`。 |
+| `DataView.portal` 私有 | 字段名 `_portal`（下划线私有约定），策略**无法通过公开 API**（`view.portal`）访问——该属性已重命名为 `_portal`，访问旧名抛 `AttributeError`。该约定是 Python 的"约定私有"语义，**不**是语言级强制力：策略仍可经 `view._portal`（或 `context._data_view._portal`）触及 raw portal——这是 Python 语言限制而非本项目缺陷；契约依靠约定 + 审计测试守住。所有合规数据访问走 `view.history` / `view.current_price` / `view.universe`。 |
 | Universe 生效 | `set_universe(...)` 后，对未声明的符号下单立即拒绝（`RejectReason.OUT_OF_UNIVERSE`，含 ORDER_CREATED + ORDER_REJECTED 事件，Order 不经过 broker、停留在 `_out_of_universe_orders` 并在 result 构造时折入 `orders_table`）；**未设 universe 时不限制**。 |
 | 历史股票池 | `Context.historical_universe()` 返回 `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束；不暴露 raw portal。 |
 | 返回值防御性 | `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用（任务 15）。 |
@@ -270,3 +270,4 @@
 | 2026-08-24 | v0.1 | 任务 20 CLI 易用性与文档真实性：console script 把 config dir + cwd 加入 sys.path（策略模块解析与 `python -m` 对齐）；`initial_cash` 拒绝 nan/inf/float；空交易窗口、空输出目录、`--force` 覆盖；`order_value` 接受 int/str；`git_commit` 改为 hqbacktest 自身版本；README 错误码表与包布局对齐；登记 §3.8 | hqbacktest 维护者 |
 | 2026-08-25 | v0.1.2（hotfix） | 任务 22 CLI 与文档失实修复（v0.1.1 复核结论）：`source` 绝对路径支持（拆为 `data_root` + 名称）；`run_metadata.json` 中 `config_path` / `output_directory` / `config_output_directory` 写入相对路径（`os.path.relpath`）；`validate_yyyymmdd` 用 `datetime.strptime` 拒绝假日期（保留 `"00000000"` 哨兵）；任务 15 性能夹具生成器改用 `datetime` 迭代（修复整数计数器 `d % 100 == 32` 仅识别 31 天月回滚、遗漏短月假日期的隐藏 bug）；CLI 测试中 `test_console_script_runs_end_to_end` 改名 `test_python_m_runs_end_to_end` 并补一个真正测 console script 的同名测试；README「26 项 CLI 测试」改为「见 tests/cli/」；`pyproject.toml` 删除过时的「no runtime deps yet」注释。任务 23/24 排入下个迭代 | hqbacktest 维护者 |
 | 2026-08-25 | v0.1.3（hotfix） | 任务 23 波动率/夏普首日采样缺口修复：`metrics.compute_metrics` 不再从 `total_equity` 重新推导日收益（旧的 `[Decimal("0")]` 种子会让首日真实收益永远不进 `stdev`），改为直接读 `engine` 写好的 `EquityPoint.daily_return`；删除死代码 `_drawdown_series`（自任务 17 之后无调用点，`max_drawdown` 直接读 `EquityPoint.drawdown`）；旧回归测试 `test_two_day_volatility_is_none_when_only_one_return` 删除（基于 bug 行为），新增 `test_two_day_volatility_uses_both_daily_returns` 手算回归（2 日 -9% / +5.5%，`daily_volatility` ≈ 0.10253）；`test_sharpe_with_risk_free_rate_and_simple_equity` 改写为基于真实 2 日序列验证 Sharpe 能算。波动率 / Sharpe 与 `max_drawdown` 对首日盈亏的可见性现在一致 | hqbacktest 维护者 |
+| 2026-08-25 | v0.1.4（hotfix） | 任务 24 数据层测试覆盖补齐与文档措辞澄清：`tests/data/test_portal_parity.py` 新增 6 项 `get_factor` 双门户逐值一致性断言（窗口返回序列、个股稀疏因子、空集、`start>end` 校验、坏 symbol、`SnapshotFileMissingError` vs 个股缺行）；`_memory_with_gaps()` 与 `_csv_with_gaps()` 同步扩展因子 fixture（600000.SH 每天都有，000001.SZ 仅 20240102/05）；`docs/design/mvp-contract.md` §3.3 删除不存在的 `get_bar(symbol, date)` 引用，将失败分类合并到 `get_bars` / `get_factor` 一行；`data_view.py` 与 mvp-contract.md §3.6 中 `DataView.portal` 隐私措辞改为准确表述（下划线是约定私有，**不是** Python 语言级强制力）。无 API 行为变更；同段合并清理：哨兵常量 `"00000000"` 三处定义（`NO_HISTORY_SENTINEL` / `SENTINEL_NO_HISTORY` / `NO_HISTORY_VISIBLE_THROUGH`）收敛到 `data.validators.SENTINEL_NO_HISTORY` 一处，从 `hqbacktest.data` 包导出；`test_version_matches_pyproject` 强化版本号形态校验（拒绝空白与 `v` 前缀） | hqbacktest 维护者 |
