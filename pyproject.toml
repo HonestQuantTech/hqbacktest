@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hqbacktest"
-version = "0.1.0"
+version = "0.1.1"
 description = "A股量化策略回测与交易模拟引擎"
 readme = "README.md"
 authors = [
@@ -58,6 +58,10 @@ include = ["hqbacktest*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Integration tests live under tests/integration/ and are skipped by
+# default (no snapshot on the test machine). Run with
+# `pytest tests/integration/ -v` on machines that have `~/.hqdata/tushare`.
+addopts = "--ignore=tests/integration"
 markers = [
   "integration: marks tests as integration tests against real hqdata sources (skipped by default)",
 ]

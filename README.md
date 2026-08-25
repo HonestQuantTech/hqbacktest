@@ -1,19 +1,20 @@
 # hqbacktest - A股量化策略回测与交易模拟引擎
 
 <p align="center">
-	<img src="https://img.shields.io/badge/status-planning-orange"/>
+	<img src="https://img.shields.io/badge/status-v0.1.1-blue"/>
 	<img src="https://img.shields.io/badge/data-hqdata-blue"/>
 </p>
 
 ## 项目状态
 
-`hqbacktest` 当前处于**v0.1 发布候选**：
+`hqbacktest` 当前发布 **`v0.1.1`**：
 
-- **已实现（任务 1–13 完成）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费；所有费率在 README 与代码中显式声明，无隐藏常量）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 为设计草案，因子诊断接口与 `analyze_factor_series` 分析器已就位。`BacktestResult` 含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` / `PerformanceMetrics` / `events.jsonl` / `data_version` / `factor_diagnostics`；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。`examples/buy_and_hold.py` 与 `examples/moving_average.py` 用公共 API 跑通端到端流程并有 7 天确定性 `InMemoryDataPortal` 数据 fixture，10 项端到端回归测试覆盖完整生命周期。`hqbacktest run --config FILE --output DIR` 命令行（`hqbacktest/cli/` 包，TOML 配置 + 校验 + 策略导入 + 元数据 + 独立输出目录，绝不泄露凭证）；26 项 CLI 测试覆盖端到端、配置验证、可复现性与错误信息。`.github/workflows/ci.yml` 覆盖 Python 3.10 / 3.11 / 3.12、`black`、`pytest`、`pytest-cov`、示例 smoke 与 CLI smoke；`python -m build` 产出 sdist + wheel；`CHANGELOG.md` 记录 v0.1。
+- **v0.1.1 新增（任务 14–21）：** 数据层缺行/停牌/首日语义修复（任务 14）；按日文件缓存 + 按 symbol 累积序列 + bisect 切片，性能从「小时级」降到「秒级」（任务 15）；同批撮合 SELL→BUY 滚动现金 + SELL 零股可卖 + 钉死 T+1/realized_pnl/ROUND_HALF_EVEN/撮合顺序（任务 16）；首日 P&L 进入收益曲线 + running peak 含 `initial_cash` + 波动率样本不足返回 `None` + 恒等式 ∏(1+r)=1+total_return（任务 17）；`Order` 不可变 + `DataView.portal` 私有 + universe 生效（任务 18）；持仓期间因子跳变自动诊断 + CLI 汇总警告 + 账本零影响（任务 19）；console script 策略模块导入 + nan/inf/空窗口校验 + 输出目录防护 + `order_value` 接受 int/str + 文档一致性（任务 20）；`tests/integration/` 真实数据冒烟基线（任务 21）。
+- **v0.1 已实现（任务 1–13）：** 产品契约、可安装的 Python 包、领域模型（订单、成交、持仓、账本、快照）、订单状态机、`AdjustmentPolicy` 枚举、`CorporateAction` 数据结构草案、`Decimal` 精度与 JSON 序列化；`MarketDataPortal`、`HqDataCsvPortal`（CSV 快照门户）、`InMemoryDataPortal`、`DataView`、内存缓存和无未来函数校验；日频事件时钟、`BacktestEngine`、五阶段调度（`SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`）、按阶段的数据可见性切换和可追溯事件日志；`BaseStrategy` 生命周期与受控 `Context` API、下单意图；`SimulatedBroker`（`OPEN_MATCH` 阶段按当日 `bar.open` 全额成交市价单）；`TradingRuleSet`（`LongOnly` / `LotSize` / `NonTradingDay` / `InvalidPrice` / `InsufficientCash` / `T1Sellable` 六条默认规则）和 `CostModel`（默认 A 股费率：0.025% 佣金 + 5 元保底 + 0.1% 卖出印花税，0 过户费）；账本拒绝原因（`INSUFFICIENT_CASH` / `INSUFFICIENT_SHARES`）和 T+1 日终结算；末交易日 `BACKTEST_ENDED` 自动撤销。`BacktestConfig.adjustment_policy` 严格只接受 `"none"`。`BacktestResult` 含 `equity_curve` / `orders_table` / `fills_table` / `positions_table` / `costs_table` / `PerformanceMetrics` / `events.jsonl` / `data_version` / `factor_diagnostics`；`save(dir)` / `load(dir)` 导出 CSV+JSON 并可重建。`examples/buy_and_hold.py` 与 `examples/moving_average.py` 用公共 API 跑通端到端流程并有 7 天确定性 `InMemoryDataPortal` 数据 fixture。`hqbacktest run --config FILE --output DIR` 命令行（`hqbacktest/cli/` 包，TOML 配置 + 校验 + 策略导入 + 元数据 + 独立输出目录，绝不泄露凭证）。`.github/workflows/ci.yml` 覆盖 Python 3.10 / 3.11 / 3.12、`black`、`pytest`、`pytest-cov`、示例 smoke 与 CLI smoke；`python -m build` 产出 sdist + wheel；`CHANGELOG.md` 记录 v0.1 与 v0.1.1。
 
-> **⚠️ 2026-08 真实数据评审：** 上述能力在单元测试与单标的真实数据冒烟中验证通过，但对 `~/.hqdata/tushare` 全量快照的评审发现多处仅在真实数据上暴露的严重缺陷：含停牌/中途上市股票的 `history()` 会使回测崩溃、多标的回测性能不可用（5 股 × 139 天 > 10 分钟）、首日盈亏在最大回撤与波动率中不可见、同日卖出回款不能用于买入、跨除权日净值静默少记分红且无警告、`hqbacktest` console script 无法导入用户策略模块等。任务 14（数据层缺行/停牌/首日语义）已修复；性能、同日回款、净值基准、universe 生效、因子诊断接入、CLI 与真实数据冒烟基线等剩余缺陷（任务 15–21）仍待完成，**v0.1 仍仅适用于「单标的、无停牌、无除权区间」的演示场景**，不应据其结果做研究结论。完整缺陷清单见 TODO.md「v0.1 评审结论」。
+> **⚠️ v0.1.1 仍未做：** 分红会计 / 涨跌停 / 新股 / 北交所 / 限价单 / 指数基准 / 多账户 / 分钟线 / 实盘对接 —— 见 [CHANGELOG.md](CHANGELOG.md) 与 [TODO.md](TODO.md) 「发布后再排期的增强项」。`adjustment_policy=none` 下跨除权日的净值仍**系统性低估**（少分红现金），任务 19 因子诊断会显式记录此类跳变，但长区间结果不可直接用于收益评估。
 
-- **不在 v0.1 内（路线图）：** 限价 / 止损单、成交量参与率、部分成交；ST / 涨跌停 / 新股 / 北交所规则；融资融券 / 期货 / 期权 / 多账户；指数基准与归因；Notebook 与远程策略入口；JSON Schema 校验以外的策略注册中心；交互图表 / HTML 报告。
+- **不在 v0.1.1 内（路线图）：** 限价 / 止损单、成交量参与率、部分成交；ST / 涨跌停 / 新股 / 北交所规则；融资融券 / 期货 / 期权 / 多账户；指数基准与归因；Notebook 与远程策略入口；JSON Schema 校验以外的策略注册中心；交互图表 / HTML 报告。
 
 本文描述的用法、命令行和功能表与 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md) 一致；其中的示例已经可以按 §示例 章节运行。功能表区分「已实现」与「路线图 / 计划中」；任何契约变更必须先更新契约文档。开发顺序与 AI 协作提示见 [TODO.md](TODO.md)。
 

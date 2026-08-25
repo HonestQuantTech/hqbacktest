@@ -14,7 +14,7 @@ matches their ergonomics — Protocol for duck-typed decorators, BaseStrategy
 for explicit `super().initialize(context)` patterns.
 """
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Dict, Protocol, runtime_checkable
 
 from ..domain.enums import EventType
 from .events import EngineEvent
@@ -58,7 +58,21 @@ class BaseStrategy:
           only after `initialize`;
         * raises `StrategyLifecycleError` if the strategy mis-uses the API
           (e.g. calling `context.order(...)` outside a callback).
+
+    Task 21: the constructor accepts and stores `**kwargs` so the CLI
+    can pass user-supplied parameters via `[strategy].kwargs`.
+    Subclasses that need parameters should accept them in their own
+    `__init__` (the base ``**kwargs`` is swallowed so no TypeError
+    on stray keyword args).
     """
+
+    def __init__(self, **kwargs: Any) -> None:
+        # Store kwargs so tests / introspection can find them; the
+        # subclass's own __init__ is responsible for consuming the
+        # parameters it actually needs. Subclasses that override
+        # __init__ should still call ``super().__init__(**kwargs)`` (or
+        # accept `**kwargs` themselves) to remain CLI-compatible.
+        self.kwargs: Dict[str, Any] = dict(kwargs)
 
     # ------------------------------------------------------------------ #
     # Optional user-facing universe declaration
