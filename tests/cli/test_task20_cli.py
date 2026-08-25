@@ -234,12 +234,21 @@ def test_initial_cash_negative_rejected(tmp_path):
 
 
 def test_start_date_impossible_rejected(tmp_path):
-    """An impossible calendar date (`20241399`) must be rejected."""
+    """An impossible calendar date (`20241399`) must be rejected.
+
+    Task 22.3: the prior version of this test set `end_date='20240104'`
+    which is **lexicographically smaller** than `'20241399'`, so the
+    failure was triggered by the `start > end` ordering check rather
+    than the impossible-date check. This revision uses an
+    `end_date` that is lex-greater AND a real calendar date
+    (`'20241231'`) so the failure mode is unambiguously the
+    impossible-date validation in `validate_yyyymmdd`.
+    """
     cfg = tmp_path / "c.toml"
     cfg.write_text(
         "[start]\n"
-        "start_date = '20241399'\n"
-        "end_date = '20240104'\n"
+        "start_date = '20241399'\n"  # month 13 — not a real date
+        "end_date = '20241231'\n"  # lex-greater than start, real date
         "[capital]\n"
         "initial_cash = '100000'\n"
         "[data]\n"
@@ -249,8 +258,47 @@ def test_start_date_impossible_rejected(tmp_path):
         "[output]\n"
         f"directory = '{tmp_path / 'out'}'\n"
     )
-    with pytest.raises(ConfigError):
+    with pytest.raises(ConfigError) as exc:
         load_config_file(str(cfg))
+    # The message must clearly attribute the failure to the impossible
+    # start_date, not to a `start > end` ordering error.
+    assert "20241399" in str(
+        exc.value
+    ), f"error should mention the impossible start_date; got {exc.value!r}"
+    assert "calendar" in str(exc.value).lower(), (
+        f"error should mention 'calendar' as the validation failure; "
+        f"got {exc.value!r}"
+    )
+    assert (
+        "start_date" in str(exc.value) or "start" in str(exc.value).lower()
+    ), f"error should mention the field name; got {exc.value!r}"
+
+
+def test_end_date_impossible_rejected(tmp_path):
+    """Task 22.3: impossible `end_date` must also be rejected.
+    Uses `end_date='20240230'` (Feb 30, non-leap year) with a real,
+    lex-smaller `start_date` so the failure mode is the impossible
+    date, not the `start > end` check.
+    """
+    cfg = tmp_path / "c.toml"
+    cfg.write_text(
+        "[start]\n"
+        "start_date = '20240102'\n"
+        "end_date = '20240230'\n"  # Feb 30 — not a real date
+        "[capital]\n"
+        "initial_cash = '100000'\n"
+        "[data]\n"
+        "source = 'memory'\n"
+        "[strategy]\n"
+        "module = 'strategy'\n"
+        "[output]\n"
+        f"directory = '{tmp_path / 'out'}'\n"
+    )
+    with pytest.raises(ConfigError) as exc:
+        load_config_file(str(cfg))
+    assert "20240230" in str(
+        exc.value
+    ), f"error should mention the impossible end_date; got {exc.value!r}"
 
 
 def test_engine_window_with_zero_trading_days_raises(tmp_path):

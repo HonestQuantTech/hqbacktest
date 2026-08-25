@@ -1,12 +1,12 @@
-"""Performance metrics (task 10 + task 17).
+"""Performance metrics (task 10 + task 17 + task 23).
 
 Formulas (all documented in README and contract doc):
     * `total_return`            = (final_equity / initial_equity) - 1
-    * `daily_return`            = equity[t] / equity[t-1] - 1   (t >= 1)
-                                  The engine anchors t=0 to `initial_cash`
-                                  so a first-day P&L flows into the
-                                  return series (task 17). The chained-
-                                  product identity
+    * `daily_return`            = `EquityPoint.daily_return` as written
+                                  by the engine. The engine anchors day 0
+                                  to `initial_cash` so a first-day P&L
+                                  flows into the return series (task 17).
+                                  The chained-product identity
                                   `∏(1 + daily_return) == 1 + total_return`
                                   therefore holds for any run.
     * `annualized_return`       = (1 + total_return) ** (n /
@@ -15,12 +15,12 @@ Formulas (all documented in README and contract doc):
                                   then re-encoded as `Decimal(str(...))`
                                   so the ledger never sees a Decimal
                                   built directly from `float`.
-    * `daily_volatility`        = stdev(daily_returns[1:])  (sample, ddof=1)
+    * `daily_volatility`        = stdev(daily_returns)  (sample, ddof=1)
                                   `None` when fewer than 2 daily returns
                                   are available (single-day run, or two
-                                  trading days with only one observed
-                                  return). Reports `0` only when the
-                                  series is genuinely flat.
+                                  trading days with only one distinct
+                                  return — task 23). Reports `0` only
+                                  when the series is genuinely flat.
     * `annualized_volatility`   = daily_volatility * sqrt(annual_trading_days)
                                   `None` iff `daily_volatility is None`.
     * `sharpe_ratio`            = (annualized_return - risk_free_rate) /
@@ -38,8 +38,18 @@ Formulas (all documented in README and contract doc):
                                   cost / total SELL fills; `None` if no
                                   SELL fills
 
-Edge cases (per task 10/17 verification "空回测 / 单日 / 零波动 / 全亏损 /
-无交易 / 样本不足"):
+Task 23: the daily-return series passed to `stdev` is the engine's
+own `EquityPoint.daily_return` series, NOT a re-derivation from
+`total_equity`. Re-derivation (the pre-task-23 implementation)
+silently dropped the day-0 return by seeding `[Decimal("0")]`, so a
+2-day backtest with one real day-1 return reported
+`daily_volatility=None` even though `max_drawdown` saw the day-0
+loss correctly. Reading `EquityPoint.daily_return` directly makes
+the volatility / drawdown / Sharpe trio agree on what counts as a
+"first day".
+
+Edge cases (per task 10/17/23 verification "空回测 / 单日 / 零波动 /
+全亏损 / 无交易 / 样本不足"):
     * `len(equity_curve) == 0` (empty run): all metrics 0 or `None`; notes
       record "no trading days".
     * `len(equity_curve) == 1` (single day): `total_return` is the only
@@ -128,34 +138,6 @@ class PerformanceMetrics:
     notes: Tuple[str, ...] = ()
 
 
-def _daily_returns(equity: Sequence[Decimal]) -> List[Decimal]:
-    """`equity[t] / equity[t-1] - 1` for t >= 1. Returns 0 for t=0."""
-    out: List[Decimal] = [Decimal("0")]
-    for prev, curr in zip(equity[:-1], equity[1:]):
-        if prev == 0:
-            out.append(Decimal("0"))
-        else:
-            out.append(curr / prev - Decimal("1"))
-    return out
-
-
-def _drawdown_series(returns: Sequence[Decimal]) -> List[Decimal]:
-    """Per-step drawdown (>= 0) given the cumulative return series."""
-    peaks: List[Decimal] = [Decimal("1")]
-    drawdowns: List[Decimal] = [Decimal("0")]
-    cum = Decimal("1")
-    for r in returns:
-        cum = cum * (Decimal("1") + r)
-        peak = max(peaks[-1], cum)
-        peaks.append(peak)
-        if peak == 0:
-            drawdowns.append(Decimal("0"))
-        else:
-            drawdowns.append(max(Decimal("0"), (peak - cum) / peak))
-    # Drop the seed element; we want one drawdown per return.
-    return drawdowns[1:]
-
-
 def compute_metrics(
     equity_curve: Sequence[EquityPoint],
     fills: Sequence[Fill],
@@ -164,17 +146,18 @@ def compute_metrics(
 ) -> PerformanceMetrics:
     """Compute all v0.1 metrics from an equity curve and the fill list.
 
-    Task 17 invariants:
-        * `daily_return` is recomputed from `total_equity` via
-          `_daily_returns`, which anchors the first day's return to
-          `initial_cash` (engine writes the same value to the
-          `EquityPoint`). The chained-product identity therefore
-          holds regardless of how the engine seeded day 0.
+    Task 23 invariants:
+        * `daily_volatility` reads `EquityPoint.daily_return` directly
+          (the same value the engine wrote, anchored to `initial_cash`
+          on day 0). Re-deriving from `total_equity` would lose the
+          day-0 return: the first day has no predecessor `total_equity`
+          to divide by, so an `equity[t] / equity[t-1] - 1` loop that
+          starts at t=1 silently drops it — that was the pre-task-23 bug.
         * `daily_volatility` is `None` whenever fewer than 2 daily
-          returns are available (single-day run, or a two-day run that
-          has only one observed return). It is `0` only when the series
-          is genuinely flat — task 17 forbids returning `0` for
-          undefined statistics.
+          returns are available (single-day run, or a multi-day run
+          whose `daily_return` values collapse to a single distinct
+          sample). It is `0` only when the series is genuinely flat —
+          task 17 forbids returning `0` for undefined statistics.
         * All Decimal metrics that involve `float` arithmetic go
           through `Decimal(str(...))` so the ledger never holds a
           `Decimal` constructed directly from a binary float (contract
@@ -214,23 +197,28 @@ def compute_metrics(
             ) - Decimal("1")
 
     # Daily volatility (per-day stdev) and its annualisation; Sharpe uses
-    # the annualised pair so the units match. Task 17: insufficient
-    # samples (< 2 daily returns) returns `None`, not 0.
-    returns = _daily_returns([pt.total_equity for pt in equity_curve])
+    # the annualised pair so the units match.
+    #
+    # Task 23: the series passed to `stdev` is the engine's own
+    # `EquityPoint.daily_return` (already anchored to `initial_cash`
+    # for day 0 by `BacktestEngine._publish_equity_point`). Re-deriving
+    # from `total_equity` would silently drop the day-0 return.
+    daily_volatility: Optional[Decimal]
     annualized_volatility: Optional[Decimal]
-    if len(returns) - 1 < 2:
-        # returns[0] is the seed (0); subsequent entries are the actual
-        # daily returns. < 2 means stdev cannot be computed.
-        daily_volatility: Optional[Decimal] = None
+    sharpe_ratio: Optional[Decimal]
+    daily_returns = [pt.daily_return for pt in equity_curve]
+    if len(daily_returns) < 2:
+        daily_volatility = None
         annualized_volatility = None
-        sharpe_ratio: Optional[Decimal] = None
+        sharpe_ratio = None
         notes.append("daily_volatility: requires >= 2 daily returns")
     else:
         try:
-            vol_per_day = Decimal(str(stdev([float(r) for r in returns[1:]])))
+            vol_per_day = Decimal(str(stdev([float(r) for r in daily_returns])))
         except StatisticsError:
-            # All-zero series: stdev is undefined in `statistics` for
-            # 0-variance; treat as zero-volatility (a defined value).
+            # All-zero (or otherwise constant) series: stdev is
+            # undefined in `statistics` for 0-variance; treat as
+            # zero-volatility (a defined value).
             vol_per_day = Decimal("0")
         daily_volatility = vol_per_day
         if vol_per_day == 0:

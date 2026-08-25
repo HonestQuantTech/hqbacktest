@@ -226,21 +226,29 @@ def _write_run_metadata(
     source_path: Optional[str],
     effective_output: str,
 ) -> None:
-    """Record package/python/source/git info so the run is self-describing."""
+    """Record package/python/source/git info so the run is self-describing.
+
+    Task 22.2: the path fields (`config_path`, `output_directory`,
+    `config_output_directory`) are persisted as **relative paths**
+    (relative to the run-time cwd) so the run is reproducible across
+    machines without leaking `/home/<user>` style directory layouts.
+    `data_root` is kept as the user-supplied value because it is part
+    of the configuration snapshot and may intentionally be absolute.
+    """
     metadata: Dict[str, Any] = {
         "hqbacktest_version": HQBACKTEST_VERSION,
         "python": sys.version.split()[0],
         "platform": sys.platform,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "config_path": str(source_path) if source_path else None,
+        "config_path": _relativize_path(source_path),
         "config_start_date": config_file.start_date,
         "config_end_date": config_file.end_date,
         "config_initial_cash": str(config_file.initial_cash),
         "config_source": config_file.source,
         "config_strategy_module": config_file.strategy_module,
         "config_strategy_class": config_file.strategy_class,
-        "output_directory": effective_output,
-        "config_output_directory": config_file.output_directory,
+        "output_directory": _relativize_path(effective_output),
+        "config_output_directory": _relativize_path(config_file.output_directory),
         "data_root": backtest_config.data_root,
         "adjustment_policy": backtest_config.adjustment_policy,
         "git_commit": _git_commit(),
@@ -249,6 +257,33 @@ def _write_run_metadata(
         json.dumps(metadata, ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _relativize_path(path_str: Optional[str]) -> Optional[str]:
+    """Return `path_str` as a path relative to the run-time cwd.
+
+    Task 22.2: prevents `run_metadata.json` from carrying absolute
+    paths like `/home/<user>/run.toml` or
+    `/home/<user>/results/run-1`. Falls back to the bare filename when
+    the path cannot be relativized (so we never crash the runner nor
+    leak an absolute path). Returns `None` unchanged when `path_str`
+    is `None`.
+
+    Implementation note: `os.path.relpath` is intentional rather than
+    `pathlib.Path.relative_to` because the former gracefully handles
+    paths outside cwd (producing `../...` relpaths), whereas the
+    latter raises `ValueError`.
+    """
+    if path_str is None:
+        return None
+    try:
+        cwd = os.getcwd()
+        return os.path.relpath(path_str, start=cwd)
+    except (OSError, ValueError):
+        # Path resolution failed (e.g. cross-drive path on Windows);
+        # fall back to the bare filename so we neither crash the runner
+        # nor write an absolute path into run_metadata.json.
+        return os.path.basename(path_str)
 
 
 def _git_commit() -> Optional[str]:

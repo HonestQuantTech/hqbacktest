@@ -30,6 +30,53 @@ def test_validate_yyyymmdd_rejects_bad(value):
         validate_yyyymmdd(value)
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Task 22.3: 8-digit but NOT a real calendar date (e.g. month 13,
+        # day 32, day 30 of February). Previously these slipped through
+        # because the validator only checked `len == 8 and isdigit()`.
+        "20241399",  # month 13
+        "20240132",  # January 32nd
+        "20240230",  # Feb 30 in a non-leap year
+        "20230229",  # Feb 29 in a non-leap year (2023 is not a leap year)
+        "20250431",  # April only has 30 days
+    ],
+)
+def test_validate_yyyymmdd_rejects_impossible_calendar_dates(value):
+    """Task 22.3: 8-digit strings that are NOT real calendar dates
+    must be rejected by `validate_yyyymmdd` itself, not by an
+    unrelated check downstream.
+    """
+    with pytest.raises(InvalidDataError, match="calendar"):
+        validate_yyyymmdd(value)
+
+
+def test_validate_yyyymmdd_accepts_first_day_sentinel():
+    """The first-trading-day sentinel ``"00000000"`` must still pass.
+
+    ``datetime.strptime("00000000", "%Y%m%d")`` raises ``ValueError``
+    (year 0 is disallowed in Python ≥ 3), so `validate_yyyymmdd`
+    special-cases it before the calendar check. `DataView` / `Scheduler`
+    use it to mean "no data visible yet" on the very first trading day.
+    """
+    assert validate_yyyymmdd("00000000") == "00000000"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "20200229",  # leap year Feb 29
+        "20000229",  # century leap year Feb 29
+        "20240131",  # 31-day month last day
+        "20240430",  # 30-day month last day
+    ],
+)
+def test_validate_yyyymmdd_accepts_real_calendar_dates(value):
+    """Task 22.3: real-but-edge-case calendar dates must still pass."""
+    assert validate_yyyymmdd(value) == value
+
+
 @pytest.mark.parametrize("value", [None, 20240102, ["20240102"]])
 def test_validate_yyyymmdd_rejects_non_string(value):
     with pytest.raises(InvalidDataError):
