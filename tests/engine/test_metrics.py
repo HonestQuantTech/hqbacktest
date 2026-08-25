@@ -1,4 +1,4 @@
-"""Tests for `engine/metrics.py` (task 10 verification).
+"""Tests for `engine/metrics.py`.
 
 Hand-calculated values used here:
     * 100 -> 110 -> 121 -> 110 over 3 days gives:
@@ -326,16 +326,16 @@ def test_no_fills_records_trade_count_zero_and_turnover_zero():
 
 
 def test_sharpe_with_risk_free_rate_and_simple_equity():
-    """Task 23: a 2-day equity curve with two distinct `daily_return`
-    samples produces a defined Sharpe ratio.
+    """A 2-day equity curve with two distinct `daily_return` samples
+    produces a defined Sharpe ratio.
 
-    Pre-fix this test asserted `sharpe_ratio is None` because the
-    old `_daily_returns` re-derived the series from `total_equity`,
+    Earlier this test asserted `sharpe_ratio is None` because the
+    older `_daily_returns` re-derived the series from `total_equity`,
     seeded `[Decimal("0")]`, and effectively dropped the day-0
-    return. With the fix, the series passed to `stdev` is the
-    engine's `EquityPoint.daily_return` (two values), so the
-    volatility is defined and Sharpe can be computed against a
-    non-zero risk-free rate.
+    return. The series passed to `stdev` is now the engine's
+    `EquityPoint.daily_return` (two values), so the volatility is
+    defined and Sharpe can be computed against a non-zero risk-free
+    rate.
 
     Hand calculation:
         daily_returns = [0.0, 0.10]
@@ -370,7 +370,7 @@ def test_sharpe_with_risk_free_rate_and_simple_equity():
     m = compute_metrics(
         equity_curve=eq, fills=[], initial_cash=Decimal("100000"), config=cfg
     )
-    # Task 23: 2 distinct samples -> volatility is defined.
+    # 2 distinct samples -> volatility is defined.
     assert m.daily_volatility is not None
     # Hand-calculated: stdev([0, 0.10], ddof=1) = sqrt(0.005)
     # ≈ 0.07071.
@@ -385,8 +385,8 @@ def test_sharpe_with_risk_free_rate_and_simple_equity():
 
 def test_sharpe_with_three_days_of_varying_returns():
     # 100 -> 110 -> 121 -> 110. Returns: 0, 0.10, 0.10, -0.0909.
-    # Task 23: stdev (sample) of the full series [0, 0.10, 0.10, -0.0909]
-    # ≈ 0.0918 (the first day's return is now included, not sliced off).
+    # stdev (sample) of the full series [0, 0.10, 0.10, -0.0909]
+    # ≈ 0.0918 (the first day's return is included, not sliced off).
     eq = [
         EquityPoint(
             "20240102",

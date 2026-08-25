@@ -2,7 +2,8 @@
 
 These tests use `InMemoryDataPortal` to assert the event sequence, the
 visible_through settings and the order/fill relationship the contract
-requires. No real matching is performed (task 5 scope).
+requires. No real matching is performed in this layer (matching is
+the broker's job).
 """
 
 from dataclasses import dataclass
@@ -129,10 +130,10 @@ def test_engine_visible_through_per_phase_matches_contract():
 def test_engine_before_trading_start_cannot_read_future():
     """The strategy must never see past `visible_through`.
 
-    Per task 14: on the first trading day the sentinel `00000000` is
-    used and `history(...)` returns `[]` rather than raising (the
-    strategy is allowed to call it; the data layer simply has nothing).
-    On every other day, a direct future-data access still must raise.
+    On the first trading day the sentinel `00000000` is used and
+    `history(...)` returns `[]` rather than raising (the strategy is
+    allowed to call it; the data layer simply has nothing). On every
+    other day, a direct future-data access still must raise.
     """
     from hqbacktest.data import FutureDataAccessError
 
@@ -194,9 +195,9 @@ def test_engine_bar_close_can_read_today_close():
 
 
 def test_engine_orders_submitted_at_bar_close_cannot_match_on_same_day():
-    """Contract: an order created at BAR_CLOSE(D) is queued for OPEN_MATCH(D+1).
-
-    Task 5 does not implement fills, so the strict assertion here is:
+    """Contract: an order created at BAR_CLOSE(D) is queued for
+    OPEN_MATCH(D+1). The engine layer doesn't implement fills, so the
+    strict assertion here is:
         - the order is created in BAR_CLOSE(D)
         - the next OPEN_MATCH event is OPEN_MATCH(D+1), never OPEN_MATCH(D)
     """
@@ -249,7 +250,7 @@ def test_engine_orders_submitted_at_bar_close_cannot_match_on_same_day():
     # 3) For each created order, find the next OPEN_MATCH event and assert
     #    it's strictly after the order's creation date. We exclude the last
     #    trading day, which has no follow-up OPEN_MATCH in the backtest
-    #    window (that order would have been CANCELLED at run end by task 7).
+    #    window (that order would have been CANCELLED at run end).
     last_day = submitter.created_order_dates[-1]
     for order_date in submitter.created_order_dates:
         if order_date == last_day:
@@ -319,8 +320,8 @@ def test_engine_event_log_preserves_chronological_order():
 
 
 def test_engine_rejects_empty_calendar_window():
-    """Task 20: an empty trading-day window must raise rather than
-    silently produce an empty result.
+    """An empty trading-day window must raise rather than silently
+    produce an empty result.
     """
     from hqbacktest.engine.errors import ConfigurationError
 

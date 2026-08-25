@@ -1,11 +1,11 @@
 """Integration scenario 4: first-trading-day `before_trading_start`
 reading `current_price` against the real snapshot.
 
-Per task 14, the first trading day uses the sentinel `visible_through`
-of `"00000000"`, so `current_price` must return `None` rather than
-crashing. This guards the documented sentinel contract end-to-end
-against a real CSV portal (where the empty/invalid date would
-otherwise trip the validator).
+On the first trading day the sentinel `visible_through` of
+`"00000000"` is used, so `current_price` must return `None` rather
+than crashing. This guards the documented sentinel contract
+end-to-end against a real CSV portal (where the empty/invalid date
+would otherwise trip the validator).
 """
 
 from __future__ import annotations

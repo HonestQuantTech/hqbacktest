@@ -1,6 +1,6 @@
 """SimulatedBroker: market-on-open matching with rule set and cost model.
 
-Rules (task 7 + task 8 + task 16):
+Rules:
     * Only `OrderType.MARKET` orders are supported; any other type is
       rejected by `Context` before reaching the broker.
     * The bar for `today` is read first: `MissingDataError` (suspended /
@@ -15,7 +15,7 @@ Rules (task 7 + task 8 + task 16):
       `InsufficientSharesError`) are produced by `Portfolio.apply_fill`
       and converted by the engine into typed rejections.
 
-Task 16 batch-matching order (A-share convention):
+Batch-matching order (A-share convention):
     * Within a single `OPEN_MATCH(today)` batch, SELL orders match
       **before** BUY orders. This mirrors "卖出资金当日可用": the
       proceeds of a SELL can fund a same-batch BUY, so a rotation
@@ -75,8 +75,8 @@ class SimulatedBroker:
         SELL because a SELL only reduces `sellable_quantity`, so stale
         values only over-estimate availability (fail-safe for the rule).
 
-        Task 16: orders are partitioned into SELLs and BUYs. All SELLs
-        match first (in submission order) so that their proceeds are
+        Orders are partitioned into SELLs and BUYs. All SELLs match
+        first (in submission order) so that their proceeds are
         available to fund the subsequent BUYs (rolling cash). The
         partition is a stable sort: the relative order within each side
         is preserved, but cross-side order is normalized to

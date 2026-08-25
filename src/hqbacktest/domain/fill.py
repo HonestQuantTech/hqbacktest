@@ -65,9 +65,9 @@ class Fill:
                 raise ValueError(f"{field_name} must be quantized to 2 decimal places")
         if len(self.filled_at) != 8 or not self.filled_at.isdigit():
             raise ValueError(f"filled_at must be YYYYMMDD, got {self.filled_at!r}")
-        # Task 16: 印花税 is charged only on SELL. A BUY fill carrying a
-        # non-zero stamp_tax would let the cash ledger drift from the
-        # costs table, so we reject it at construction time.
+        # 印花税 is charged only on SELL. A BUY fill carrying a non-zero
+        # stamp_tax would let the cash ledger drift from the costs
+        # table, so we reject it at construction time.
         if self.side is Side.BUY and self.stamp_tax != 0:
             raise ValueError(
                 f"stamp_tax on BUY must be 0 (印花税 only on SELL), got {self.stamp_tax}"

@@ -107,8 +107,8 @@ def test_context_exposes_portfolio_and_log():
 
 
 def test_context_phase_and_date_are_read_only_for_strategies():
-    """Task 6 isolation: strategy code must not be able to forge the current
-    date or phase (they drive order IDs and `created_session`)."""
+    """Strategy code must not be able to forge the current date or
+    phase (they drive order IDs and `created_session`)."""
     portfolio = Portfolio(initial_cash=Decimal("100000"))
     log = EventLog()
     portal = InMemoryDataPortal(calendar=["20240102"])

@@ -1,10 +1,10 @@
 """Parity tests between InMemoryDataPortal and HqDataCsvPortal.
 
 The two portals must agree on every observable behavior for the same fixture
-data. Per task 14 of TODO.md, any divergence means tests can pass on memory
-data while production silently misbehaves on CSV snapshots. Each test in this
-file constructs equivalent fixtures for both portals and asserts identical
-return values and identical exception types.
+data. Any divergence means tests can pass on memory data while production
+silently misbehaves on CSV snapshots. Each test in this file constructs
+equivalent fixtures for both portals and asserts identical return values
+and identical exception types.
 """
 
 from __future__ import annotations
@@ -342,10 +342,10 @@ def test_universe_exact_date_agrees(tmp_path):
 
 
 def test_universe_raises_on_missing_snapshot_for_both(tmp_path):
-    """Neither portal silently walks back to a prior snapshot (task 14).
+    """Neither portal silently walks back to a prior snapshot.
 
-    A missing whole-day stock-list snapshot is an infrastructure failure in
-    both portals, so the exception type must be identical
+    A missing whole-day stock-list snapshot is an infrastructure
+    failure in both portals, so the exception type must be identical
     (`SnapshotFileMissingError`), not merely a shared base class.
     """
     mem = _memory_with_gaps()
@@ -510,17 +510,18 @@ def test_bars_snapshot_missing_vs_per_symbol_missing_classification():
 
 
 # ---------------------------------------------------------------------------
-# Factor parity (task 24: `test_factor_rejects_zero_in_memory_portal`
-# below only asserted the memory portal rejected 0 independently; it did
-# NOT exercise the parity of returned values. These tests run the same
-# fixture through both portals and assert identical return values /
-# exception types.)
+# Factor parity: `test_factor_rejects_zero_in_memory_portal` below only
+# asserts the memory portal rejects a non-positive factor at construction
+# time. The CSV-side equivalent lives in
+# `tests/data/test_hqdata_portal.py`. These tests run the same fixture
+# through both portals and assert identical return values and
+# exception types across the full `get_factor` API.
 # ---------------------------------------------------------------------------
 
 
 def test_factor_window_returns_identical_series(tmp_path):
-    """Task 24: `get_factor` must return the same `(date, factor)` list
-    on both portals for the same fixture (mirrors `test_bars_*_agrees`).
+    """`get_factor` must return the same `(date, factor)` list on both
+    portals for the same fixture (mirrors `test_bars_*_agrees`).
     """
     mem = _memory_with_gaps()
     csv = _csv_with_gaps(tmp_path)
@@ -540,9 +541,9 @@ def test_factor_window_returns_identical_series(tmp_path):
 
 
 def test_factor_per_symbol_gap_matches_between_portals(tmp_path):
-    """Task 24: a symbol with a sparse factor series (factors on
-    20240102 and 20240105 only) must return the SAME two rows on both
-    portals — not raise, not silently extend to every calendar entry.
+    """A symbol with a sparse factor series (factors on 20240102 and
+    20240105 only) must return the SAME two rows on both portals — not
+    raise, not silently extend to every calendar entry.
     """
     mem = _memory_with_gaps()
     csv = _csv_with_gaps(tmp_path)
@@ -555,8 +556,8 @@ def test_factor_per_symbol_gap_matches_between_portals(tmp_path):
 
 
 def test_factor_empty_when_symbol_never_listed(tmp_path):
-    """Task 24: a symbol absent from both `stock_list` and the factor
-    files returns `[]` on both portals.
+    """A symbol absent from both `stock_list` and the factor files
+    returns `[]` on both portals.
     """
     mem = _memory_with_gaps()
     csv = _csv_with_gaps(tmp_path)
@@ -585,8 +586,8 @@ def test_factor_rejects_bad_symbol_for_both(tmp_path):
 def test_factor_distinguishes_snapshot_missing_from_per_symbol_gap(
     tmp_path,
 ):
-    """Task 24: the parity invariant for `get_factor` mirrors
-    `get_bars` — a missing whole-day `stock_factor/{D}.csv` raises
+    """The parity invariant for `get_factor` mirrors `get_bars` — a
+    missing whole-day `stock_factor/{D}.csv` raises
     `SnapshotFileMissingError`, while a per-symbol gap is silently
     omitted from the result.
     """

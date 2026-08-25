@@ -1,4 +1,4 @@
-"""Task 14 tests for DataView and snapshot-missing error handling.
+"""DataView and snapshot-missing error handling.
 
 Covers:
     * Sentinel `visible_through="00000000"` on the first trading day must not
@@ -232,8 +232,8 @@ def test_current_price_returns_latest_close_on_full_coverage():
 
 
 # ---------------------------------------------------------------------------
-# SnapshotFileMissingError propagation (task 14: infrastructure failure must
-# not be silently folded into a per-symbol gap)
+# SnapshotFileMissingError propagation (infrastructure failure must not
+# be silently folded into a per-symbol gap)
 # ---------------------------------------------------------------------------
 
 
@@ -280,12 +280,12 @@ def test_engine_lookback_price_propagates_snapshot_missing():
 
 
 # ---------------------------------------------------------------------------
-# history start bound + early-read error type (task 14)
+# history start bound + early-read error type
 # ---------------------------------------------------------------------------
 
 
 def test_history_does_not_query_legacy_19000101_start():
-    """`history` must not scan the full pre-start window (task 14)."""
+    """`history` must not scan the full pre-start window."""
     p = _gap_portal()
     view = DataView(portal=p, visible_through="20240105")
 

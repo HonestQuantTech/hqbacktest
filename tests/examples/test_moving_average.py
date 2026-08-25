@@ -1,4 +1,4 @@
-"""End-to-end regression test for `examples/moving_average.py` (task 11)."""
+"""End-to-end regression test for `examples/moving_average.py`."""
 
 import importlib.util
 import subprocess

@@ -1,7 +1,7 @@
 """Integration scenario 2: 5-symbol moving-average strategy over the
 full window, with a wall-clock budget and byte-determinism check.
 
-Calibrated against the `~/.hqdata/tushare` snapshot for v0.1.1:
+Calibrated against the `~/.hqdata/tushare` snapshot:
     * 5 picked symbols (well-known large caps).
     * Run budget: < 60 s for the full 139-day window.
     * Two runs with identical inputs must produce byte-identical output
@@ -74,7 +74,7 @@ def test_5_symbol_moving_average_full_window_deterministic(tmp_path: Path):
     same equity_curve.csv / summary.json / fills.csv bytes (modulo
     the timestamp field).
 
-    Calibrated to < 60 s on the v0.1.1 release machine; the
+    Calibrated to < 60 s on the release machine; the
     threshold is intentionally generous to survive CI jitter.
     """
     (tmp_path / "strategy.py").write_text(_STRATEGY_SRC)

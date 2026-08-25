@@ -2,7 +2,7 @@
 
 Two layers are exposed:
 
-* `Strategy` — the `Protocol` shape used by the engine (task 5, unchanged).
+* `Strategy` — the `Protocol` shape used by the engine clock.
 * `BaseStrategy` — a convenience base class that adds explicit lifecycle
   tracking: subclassing overrides the same four methods but the engine
   enforces "must `initialize` before any other callback" and rejects
@@ -59,11 +59,11 @@ class BaseStrategy:
         * raises `StrategyLifecycleError` if the strategy mis-uses the API
           (e.g. calling `context.order(...)` outside a callback).
 
-    Task 21: the constructor accepts and stores `**kwargs` so the CLI
-    can pass user-supplied parameters via `[strategy].kwargs`.
-    Subclasses that need parameters should accept them in their own
-    `__init__` (the base ``**kwargs`` is swallowed so no TypeError
-    on stray keyword args).
+    The constructor accepts and stores `**kwargs` so the CLI can pass
+    user-supplied parameters via `[strategy].kwargs`. Subclasses that
+    need parameters should accept them in their own `__init__` (the
+    base ``**kwargs`` is swallowed so no TypeError on stray keyword
+    args).
     """
 
     def __init__(self, **kwargs: Any) -> None:
@@ -82,9 +82,9 @@ class BaseStrategy:
         """Override to set universe and stash initial parameters.
 
         Default implementation does nothing; subclasses may call
-        ``context.set_universe([...])`` (added in task 6) to declare the
-        tradeable set. The engine guarantees this is the first method
-        invoked in the run.
+        ``context.set_universe([...])`` to declare the tradeable set.
+        The engine guarantees this is the first method invoked in the
+        run.
         """
         return None
 

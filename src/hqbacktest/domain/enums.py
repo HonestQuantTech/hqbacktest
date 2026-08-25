@@ -57,8 +57,8 @@ class RejectReason(Enum):
     MISSING_DATA = "MISSING_DATA"
     DUPLICATE_ORDER = "DUPLICATE_ORDER"
     BACKTEST_ENDED = "BACKTEST_ENDED"
-    # Task 18: order targets a symbol outside the strategy's declared
-    # universe. Only emitted when `set_universe` has been called.
+    # Order targets a symbol outside the strategy's declared universe.
+    # Only emitted when `set_universe` has been called.
     OUT_OF_UNIVERSE = "OUT_OF_UNIVERSE"
     OTHER = "OTHER"
 
@@ -98,7 +98,7 @@ class PriceMode(Enum):
 
 
 class AdjustmentPolicy(Enum):
-    """Adjustment / company-action policy (task 9).
+    """Adjustment / company-action policy.
 
     v0.1 only accepts `NONE`. Any other value is rejected at config
     validation time with an explicit reason. The enum entry for

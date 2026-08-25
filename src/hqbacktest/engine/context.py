@@ -1,6 +1,6 @@
 """Context: read-only façade for strategies with order-intent API.
 
-Task 6 adds the full surface required by `BaseStrategy`:
+Public surface required by `BaseStrategy`:
     * read-only accessors: `cash`, `positions`, `position`, `universe`,
       `pending_orders`, `history`, `current_price`, `now`, `phase`,
       `visible_through`;
@@ -9,11 +9,11 @@ Task 6 adds the full surface required by `BaseStrategy`:
     * lifecycle hooks driven by `BacktestEngine` (initialized / run_finished).
 
 The Context never mutates the ledger directly. `Portfolio.apply_fill` is
-the single writer (task 7); here we only append `Order` objects to
+the single writer; here we only append `Order` objects to
 `pending_orders`. Strategy code therefore cannot reach the broker
 directly — every order path funnels through the engine.
 
-Isolation rules enforced here (contract §4 and task 6 goals):
+Isolation rules enforced here (contract §4):
     * Date / phase / data view are engine-owned: they can only be changed
       through `_set_*` hooks, never by strategy code.
     * Market data is only readable while the scheduler has published a
@@ -22,7 +22,7 @@ Isolation rules enforced here (contract §4 and task 6 goals):
     * Orders may only be submitted from `BEFORE_TRADING_START` or
       `BAR_CLOSE` (contract §4 "可下单" column).
     * `set_universe` may only be called from `initialize`; the universe is
-      locked once `initialize` returns (contract §4 配套约束).
+      locked once `initialize` returns.
     * All order paths funnel through `_create_order`, so the order-type
       allow-list and symbol validation cannot be skipped by the
       convenience helpers.
@@ -130,7 +130,7 @@ class Context:
 
         Peek-only (does not clear): the scheduler uses this to decide
         whether to invoke the matcher, while the engine drains the list
-        via `_consume_out_of_universe_orders` (task 18).
+        via `_consume_out_of_universe_orders`.
         """
         return bool(self._out_of_universe_orders)
 
@@ -222,10 +222,10 @@ class Context:
     def historical_universe(self) -> List[str]:
         """The historical stock list as of the current `visible_through`.
 
-        Task 18: this is the only universe accessor that reads through
-        the data portal. It is constrained by `visible_through` and
-        must not be used to read future data. When no `DataView`
-        is published (e.g. in `initialize`), an empty list is returned.
+        This is the only universe accessor that reads through the data
+        portal. It is constrained by `visible_through` and must not be
+        used to read future data. When no `DataView` is published
+        (e.g. in `initialize`), an empty list is returned.
         """
         self._require_active("historical_universe")
         if self._data_view is None:
@@ -235,9 +235,9 @@ class Context:
     def pending_orders(self) -> List[Order]:
         """Snapshot of in-flight orders (engine clears them at matching).
 
-        Task 18: the returned list and its `Order` elements are
-        defensive copies / frozen instances — strategies cannot
-        mutate the engine's view of the order.
+        The returned list and its `Order` elements are defensive copies /
+        frozen instances — strategies cannot mutate the engine's view
+        of the order.
         """
         self._require_active("pending_orders")
         return list(self._pending_orders)
@@ -302,8 +302,8 @@ class Context:
         """Coerce a monetary value to `Decimal`, accepting int/str/Decimal.
 
         `float` and `bool` are rejected (contract rule 5: no binary
-        float enters the ledger), and NaN / Inf are rejected. Task 20:
-        lets strategies use literal cash values (`15000`, `'15000'`)
+        float enters the ledger), and NaN / Inf are rejected. Lets
+        strategies use literal cash values (`15000`, `'15000'`)
         without wrapping them in `Decimal(...)`.
         """
         if isinstance(value, bool):
@@ -361,9 +361,9 @@ class Context:
         """Place an order for `value` worth of `symbol` (positive => BUY).
 
         `value` may be a `Decimal`, `int`, or numeric string; `float`
-        remains forbidden (contract rule 5). Task 20: widening the
-        accepted types here lets strategies use literal cash values
-        without first wrapping them in `Decimal(...)`.
+        remains forbidden (contract rule 5). Widening the accepted
+        types here lets strategies use literal cash values without
+        first wrapping them in `Decimal(...)`.
         """
         self._require_orderable("order_value")
         value = self._coerce_amount(value, "value")
@@ -419,7 +419,7 @@ class Context:
         """Reconcile holdings towards `target_value` worth of `symbol`.
 
         `target_value` may be a `Decimal`, `int`, or numeric string;
-        `float` remains forbidden (contract rule 5). Task 20.
+        `float` remains forbidden (contract rule 5).
         """
         self._require_orderable("order_target_value")
         target_value = self._coerce_amount(target_value, "target_value")
@@ -512,11 +512,11 @@ class Context:
         validate_symbol(symbol)
         if not is_positive(Decimal(quantity)):
             raise StrategyLifecycleError(f"quantity must be positive, got {quantity}")
-        # Task 16: lot-alignment applies to BUY only. A-share rules allow
-        # odd-lot SELLs so positions holding non-lot quantities can be
-        # fully closed; round_lot() on a SELL would silently shrink
-        # the order (e.g. 150 -> 100), violating the contract that the
-        # broker sees the exact share count the strategy submitted.
+        # Lot-alignment applies to BUY only. A-share rules allow odd-lot
+        # SELLs so positions holding non-lot quantities can be fully
+        # closed; round_lot() on a SELL would silently shrink the order
+        # (e.g. 150 -> 100), violating the contract that the broker sees
+        # the exact share count the strategy submitted.
         if side is Side.BUY:
             lot_aligned = round_lot(quantity, lot_size=LOT_SIZE)
             if lot_aligned == 0:
@@ -526,10 +526,10 @@ class Context:
             final_quantity = lot_aligned
         else:
             final_quantity = quantity
-        # Task 18: when a universe has been declared, orders for symbols
-        # outside it must be rejected (typed reason + audit-trail event).
-        # When the strategy has not called `set_universe`, the universe
-        # is empty and trading is unrestricted.
+        # When a universe has been declared, orders for symbols outside
+        # it must be rejected (typed reason + audit-trail event). When
+        # the strategy has not called `set_universe`, the universe is
+        # empty and trading is unrestricted.
         if self._universe and symbol not in self._universe:
             return self._reject_out_of_universe(
                 symbol=symbol, side=side, quantity=final_quantity
@@ -545,8 +545,8 @@ class Context:
             created_at=self._current_date,
             created_session=created_session,
         )
-        # Move to ACCEPTED immediately so the broker (task 7) only has to
-        # handle the matching step. Engine-side validity checks will mark
+        # Move to ACCEPTED immediately so the broker only has to handle
+        # the matching step. Engine-side validity checks will mark
         # REJECTED if necessary.
         order.transition(OrderStatus.ACCEPTED, at=self._current_date)
         order.transition(OrderStatus.PENDING, at=self._current_date)
@@ -573,11 +573,11 @@ class Context:
     ) -> Optional[Order]:
         """Build a REJECTED order for a symbol outside the declared
         universe. Records ORDER_REJECTED + ORDER_CREATED events so the
-        audit trail is complete (task 18). The order is NOT appended
-        to `_pending_orders` so the broker never sees it (REJECTED is
-        a terminal status and would corrupt the broker's state
-        machine); instead it lands in `_out_of_universe_orders` and
-        is folded into the engine's `orders_table` at result build.
+        audit trail is complete. The order is NOT appended to
+        `_pending_orders` so the broker never sees it (REJECTED is a
+        terminal status and would corrupt the broker's state machine);
+        instead it lands in `_out_of_universe_orders` and is folded
+        into the engine's `orders_table` at result build.
         """
         created_session = self._phase
         order = Order(
@@ -592,7 +592,7 @@ class Context:
         order.transition(OrderStatus.ACCEPTED, at=self._current_date)
         # Stamp the reason onto the Order itself (not only the event log)
         # so `orders_table.reject_reason` and the ORDER_REJECTED event
-        # agree (task 18 audit integrity).
+        # agree.
         order.transition(
             OrderStatus.REJECTED,
             at=self._current_date,

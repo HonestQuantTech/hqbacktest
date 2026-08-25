@@ -1,14 +1,14 @@
-# hqbacktest v0.1 产品契约
+# hqbacktest 产品契约
 
-> 状态：**已固化**，对应 `TODO.md` 任务 1。本文档是 v0.1 的领域术语、模块边界、日事件顺序、数据可见性、订单成交时机、精度规则和非目标的**唯一事实来源**。
+> 状态：**已固化**。本文档是领域术语、模块边界、日事件顺序、数据可见性、订单成交时机、精度规则和非目标的**唯一事实来源**。
 >
 > 阅读对象：参与 `hqbacktest` 实现的开发者、审阅者与 AI 助手。任何对默认契约的修改必须先更新本文并在第 9 节登记。
 
 ## 1. 目的与版本
 
-- 本文档与 `README.md`、`TODO.md` 共同构成项目的设计层；其中本文负责"是什么 / 何时 / 如何"，`TODO.md` 负责"按什么顺序交付"，`README.md` 负责"面向用户怎么用"。
+- 本文档是 `hqbacktest` 的设计层契约：定义"是什么 / 何时 / 如何"。`README.md` 面向用户说明"怎么用"。
 - 本文档面向 `hqbacktest` 的首个可用版本（v0.1）；后续版本（指数基准、分钟线、多账户等）必须以独立章节或独立文档承接，不得通过单点补丁混进本文。
-- 修订规则：任何对默认值、术语、事件顺序或不可变规则的修改，必须**先**改本文，**再**同步调整 README 与 TODO 的对应章节，并在第 9 节追加一条变更记录。
+- 修订规则：任何对默认值、术语、事件顺序或不可变规则的修改，必须**先**改本文，再同步调整 README，并在第 9 节追加一条变更记录。
 
 ## 2. 术语表
 
@@ -254,20 +254,19 @@
 
 ## 9. 修订记录
 
-| 日期 | 版本 | 变更 | 作者 |
-| --- | --- | --- | --- |
-| 2026-08-17 | v0.1 初稿 | 依据 `TODO.md` 任务 1 首次固化契约 | hqbacktest 维护者 |
-| 2026-08-17 | v0.1 | 修正盘前订单的同日开盘撮合语义；明确收盘估值、结束订单、股票池资格与异常分类；因缺少精确公司行为会计，v0.1 仅支持 `AdjustmentPolicy=none` | hqbacktest 维护者 |
-| 2026-08-23 | v0.1 | 任务 9：公司行为扩展设计门槛落地——`BacktestConfig.adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 列为设计草案并锁定 10 个权威字段；`BacktestResult.adjustment_policy` 与 `factor_diagnostics` 字段已就位；因子诊断接口存在但 v0.1 不启用 | hqbacktest 维护者 |
-| 2026-08-17 | v0.1（已被后续修订取代） | 曾将 `source` 交给 `hqdata` 解析；该 API 驱动的数据边界已在 2026-08-23 被 CSV 快照契约取代 | hqbacktest 维护者 |
-| 2026-08-23 | v0.1 | 修正回测运行时数据边界：`hqbacktest` 直接只读 hqdata CLI 落盘 CSV；`data_root` 默认 `~/.hqdata`，不调用 `hqdata.api` 或网络数据源 | hqbacktest 维护者 |
-| 2026-08-23 | v0.1 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录串扰 | hqbacktest 维护者 |
-| 2026-08-24 | v0.1 | 任务 14 数据层缺行/停牌/首日语义：钉死 `get_bars` 允许间隙、引入 `SnapshotFileMissingError` 区分整日文件缺失与个股缺行、`current_price` 回看 20 交易日最近有效收盘价、首日哨兵日期不抛异常、删除 `InMemoryDataPortal.get_universe` 向前回退、补双门户 parity 测试、缓存返回防御性拷贝、`.BJ` 股票默认过滤、`Bar.volume` 单位标注为「手」 | hqbacktest 维护者 |
-| 2026-08-24 | v0.1 | 任务 16 撮合与账本语义：同批撮合 SELL 先于 BUY（滚动现金）、SELL 不整手取整（`order_target(0)` 可清零股）、`Fill.BUY` 携带非零 stamp_tax 报错、`Order.record_fill` 移除不可达 `ACCEPTED` 分支、`intents.target_quantity_for_value(0)` 按 docstring 返回 0、CLI `initial_cash` 拒绝 float 与引擎对齐、`realized_pnl` 不含费用修正旧注释；登记 §3.4 撮合口径表 | hqbacktest 维护者 |
-| 2026-08-24 | v0.1 | 任务 17 净值与指标基准：首日 `daily_return` / `drawdown` 以 `initial_cash` 为基准（不再硬编码 0）、后续日 running peak = `max(initial_cash, 历史 total_equity)`、波动率样本不足返回 `None` 而非 0、`Decimal(str(float(...)))` 替代 `Decimal(float(...))` 幂运算桥接、`positions.sellable_quantity` 口径登记为「结转后」；恒等式 `∏(1 + daily_return) = 1 + total_return` 成立；登记 §3.5 | hqbacktest 维护者 |
-| 2026-08-24 | v0.1 | 任务 18 策略隔离与审计完整性：`Order` 改为 `frozen=True`（策略无法修改 `pending_orders()` 返回的 Order）、`DataView.portal` 改为私有 `_portal`、universe 生效（`RejectReason.OUT_OF_UNIVERSE`）、`Context.historical_universe()` 转发 `DataView.universe()` 受可见性约束；登记 §3.6 | hqbacktest 维护者 |
-| 2026-08-24 | v0.1 | 任务 19 因子诊断接入与分红偏差显性化：engine 在持仓/成交标的的因子跳变（阈值 0.1%）自动生成 DATA_WARNING + `FactorDiagnostic`，结果写入 `summary.json` / `events.jsonl`；CLI 末尾打印汇总警告；账本与净值完全不变；登记 §3.7 | hqbacktest 维护者 |
-| 2026-08-24 | v0.1 | 任务 20 CLI 易用性与文档真实性：console script 把 config dir + cwd 加入 sys.path（策略模块解析与 `python -m` 对齐）；`initial_cash` 拒绝 nan/inf/float；空交易窗口、空输出目录、`--force` 覆盖；`order_value` 接受 int/str；`git_commit` 改为 hqbacktest 自身版本；README 错误码表与包布局对齐；登记 §3.8 | hqbacktest 维护者 |
-| 2026-08-25 | v0.1.2（hotfix） | 任务 22 CLI 与文档失实修复（v0.1.1 复核结论）：`source` 绝对路径支持（拆为 `data_root` + 名称）；`run_metadata.json` 中 `config_path` / `output_directory` / `config_output_directory` 写入相对路径（`os.path.relpath`）；`validate_yyyymmdd` 用 `datetime.strptime` 拒绝假日期（保留 `"00000000"` 哨兵）；任务 15 性能夹具生成器改用 `datetime` 迭代（修复整数计数器 `d % 100 == 32` 仅识别 31 天月回滚、遗漏短月假日期的隐藏 bug）；CLI 测试中 `test_console_script_runs_end_to_end` 改名 `test_python_m_runs_end_to_end` 并补一个真正测 console script 的同名测试；README「26 项 CLI 测试」改为「见 tests/cli/」；`pyproject.toml` 删除过时的「no runtime deps yet」注释。任务 23/24 排入下个迭代 | hqbacktest 维护者 |
-| 2026-08-25 | v0.1.3（hotfix） | 任务 23 波动率/夏普首日采样缺口修复：`metrics.compute_metrics` 不再从 `total_equity` 重新推导日收益（旧的 `[Decimal("0")]` 种子会让首日真实收益永远不进 `stdev`），改为直接读 `engine` 写好的 `EquityPoint.daily_return`；删除死代码 `_drawdown_series`（自任务 17 之后无调用点，`max_drawdown` 直接读 `EquityPoint.drawdown`）；旧回归测试 `test_two_day_volatility_is_none_when_only_one_return` 删除（基于 bug 行为），新增 `test_two_day_volatility_uses_both_daily_returns` 手算回归（2 日 -9% / +5.5%，`daily_volatility` ≈ 0.10253）；`test_sharpe_with_risk_free_rate_and_simple_equity` 改写为基于真实 2 日序列验证 Sharpe 能算。波动率 / Sharpe 与 `max_drawdown` 对首日盈亏的可见性现在一致 | hqbacktest 维护者 |
-| 2026-08-25 | v0.1.4（hotfix） | 任务 24 数据层测试覆盖补齐与文档措辞澄清：`tests/data/test_portal_parity.py` 新增 6 项 `get_factor` 双门户逐值一致性断言（窗口返回序列、个股稀疏因子、空集、`start>end` 校验、坏 symbol、`SnapshotFileMissingError` vs 个股缺行）；`_memory_with_gaps()` 与 `_csv_with_gaps()` 同步扩展因子 fixture（600000.SH 每天都有，000001.SZ 仅 20240102/05）；`docs/design/mvp-contract.md` §3.3 删除不存在的 `get_bar(symbol, date)` 引用，将失败分类合并到 `get_bars` / `get_factor` 一行；`data_view.py` 与 mvp-contract.md §3.6 中 `DataView.portal` 隐私措辞改为准确表述（下划线是约定私有，**不是** Python 语言级强制力）。无 API 行为变更；同段合并清理：哨兵常量 `"00000000"` 三处定义（`NO_HISTORY_SENTINEL` / `SENTINEL_NO_HISTORY` / `NO_HISTORY_VISIBLE_THROUGH`）收敛到 `data.validators.SENTINEL_NO_HISTORY` 一处，从 `hqbacktest.data` 包导出；`test_version_matches_pyproject` 强化版本号形态校验（拒绝空白与 `v` 前缀） | hqbacktest 维护者 |
+| 日期 | 变更 | 作者 |
+| --- | --- | --- |
+| 2026-08-17 | 初稿：固化术语、模块边界、日事件顺序、数据可见性、订单成交时机、精度规则和非目标 | hqbacktest 维护者 |
+| 2026-08-17 | 修正盘前订单的同日开盘撮合语义；明确收盘估值、结束订单、股票池资格与异常分类；v0.1 仅支持 `AdjustmentPolicy=none` | hqbacktest 维护者 |
+| 2026-08-23 | 公司行为扩展设计门槛落地——`adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 列为设计草案并锁定 10 个权威字段；`factor_diagnostics` 字段已就位；因子诊断接口存在但 v0.1 不启用 | hqbacktest 维护者 |
+| 2026-08-23 | 修正回测运行时数据边界：`hqbacktest` 直接只读 hqdata CLI 落盘 CSV；`data_root` 默认 `~/.hqdata`，不调用 `hqdata.api` 或网络数据源 | hqbacktest 维护者 |
+| 2026-08-23 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录串扰 | hqbacktest 维护者 |
+| 2026-08-24 | 数据层缺行/停牌/首日语义：钉死 `get_bars` 允许间隙、引入 `SnapshotFileMissingError` 区分整日文件缺失与个股缺行、`current_price` 回看 20 交易日最近有效收盘价、首日哨兵日期不抛异常、删除 `InMemoryDataPortal.get_universe` 向前回退、补双门户 parity 测试、缓存返回防御性拷贝、`.BJ` 股票默认过滤、`Bar.volume` 单位标注为「手」 | hqbacktest 维护者 |
+| 2026-08-24 | 撮合与账本语义：同批撮合 SELL 先于 BUY（滚动现金）、SELL 不整手取整、`Fill.BUY` 携带非零 stamp_tax 报错、`Order.record_fill` 移除不可达 `ACCEPTED` 分支、`intents.target_quantity_for_value(0)` 按 docstring 返回 0、CLI `initial_cash` 拒绝 float 与引擎对齐、`realized_pnl` 不含费用；登记 §3.4 撮合口径表 | hqbacktest 维护者 |
+| 2026-08-24 | 净值与指标基准：首日 `daily_return` / `drawdown` 以 `initial_cash` 为基准、后续日 running peak = `max(initial_cash, 历史 total_equity)`、波动率样本不足返回 `None` 而非 0、`Decimal(str(float(...)))` 替代 `Decimal(float(...))` 幂运算桥接、`positions.sellable_quantity` 口径登记为「结转后」；恒等式 `∏(1 + daily_return) = 1 + total_return` 成立；登记 §3.5 | hqbacktest 维护者 |
+| 2026-08-24 | 策略隔离与审计完整性：`Order` 改为 `frozen=True`、`DataView.portal` 改为私有 `_portal`、universe 生效（`RejectReason.OUT_OF_UNIVERSE`）、`Context.historical_universe()` 转发 `DataView.universe()` 受可见性约束；登记 §3.6 | hqbacktest 维护者 |
+| 2026-08-24 | 因子诊断接入与分红偏差显性化：engine 在持仓/成交标的的因子跳变（阈值 0.1%）自动生成 DATA_WARNING + `FactorDiagnostic`，结果写入 `summary.json` / `events.jsonl`；CLI 末尾打印汇总警告；账本与净值完全不变；登记 §3.7 | hqbacktest 维护者 |
+| 2026-08-24 | CLI 易用性与文档真实性：console script 把 config dir + cwd 加入 sys.path；`initial_cash` 拒绝 nan/inf/float；空交易窗口、空输出目录、`--force` 覆盖；`order_value` 接受 int/str；`git_commit` 改为 hqbacktest 自身版本；README 错误码表与包布局对齐；登记 §3.8 | hqbacktest 维护者 |
+| 2026-08-25 | `source` 绝对路径支持（拆为 `data_root` + 名称）；`run_metadata.json` 中 `config_path` / `output_directory` / `config_output_directory` 写入相对路径（`os.path.relpath`）；`validate_yyyymmdd` 用 `datetime.strptime` 拒绝假日期（保留 `"00000000"` 哨兵）；性能夹具生成器改用 `datetime` 迭代；`test_console_script_runs_end_to_end` 改名 `test_python_m_runs_end_to_end` 并补一个真正测 console script 的同名测试；README「26 项 CLI 测试」改为「见 tests/cli/」；`pyproject.toml` 删除过时的「no runtime deps yet」注释 | hqbacktest 维护者 |
+| 2026-08-25 | 波动率/夏普首日采样缺口修复：`metrics.compute_metrics` 不再从 `total_equity` 重新推导日收益（旧零种子会丢首日真实收益），改为直接读 `engine` 写好的 `EquityPoint.daily_return`；删除死代码 `_drawdown_series`；新增手算回归（2 日 -9% / +5.5%，`daily_volatility` ≈ 0.10253）。波动率 / Sharpe 与 `max_drawdown` 对首日盈亏的可见性现在一致 | hqbacktest 维护者 |
+| 2026-08-25 | 数据层测试覆盖补齐与文档措辞澄清：6 项 `get_factor` 双门户逐值一致性断言；§3.3 删除不存在的 `get_bar(symbol, date)` 引用；`DataView.portal` 措辞改为准确表述（下划线是约定私有，不是 Python 语言级强制力）；哨兵常量 `"00000000"` 收敛到 `data.validators.SENTINEL_NO_HISTORY` 一处；`test_version_matches_pyproject` 强化版本号形态校验 | hqbacktest 维护者 |

@@ -1,4 +1,4 @@
-"""Task 16 hand-calculated regression tests for matching + lot rounding.
+"""Hand-calculated regression tests for matching + lot rounding.
 
 Covers:
     * Same-day SELL proceeds are available to fund the same batch's BUY
@@ -90,11 +90,11 @@ def test_same_day_sell_proceeds_fund_buy_in_same_batch():
     """Hand-calculated regression: hold 900 @ 10 (cost basis 9000), cash
     45; same batch SELL 900 + BUY 900 @ 10.
 
-    Before task 16 the BUY was rejected with INSUFFICIENT_CASH because
-    the broker matched in submission order using a pre-batch cash
-    snapshot. After task 16 SELL runs first and its net proceeds
-    (900 * 10 - 5 commission - 9 stamp = 8986) push cash from 45 to
-    9031, funding the 9005-cost BUY in the same batch.
+    Earlier the BUY was rejected with INSUFFICIENT_CASH because the
+    broker matched in submission order using a pre-batch cash
+    snapshot. The broker now matches SELLs first and the SELL net
+    proceeds (900 * 10 - 5 commission - 9 stamp = 8986) push cash from
+    45 to 9031, funding the 9005-cost BUY in the same batch.
     """
 
     class Rotate(BaseStrategy):

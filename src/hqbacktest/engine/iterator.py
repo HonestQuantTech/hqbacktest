@@ -14,10 +14,10 @@ from .errors import ConfigurationError
 class TradingDayIterator:
     """Yields trading days in `[start, end]` (inclusive), in ascending order.
 
-    Task 20: an empty trading-day window is a hard error. Silent
-    success on a zero-day run produces misleading "no signals"
-    reports and breaks reproducibility, so the iterator raises
-    `ConfigurationError` instead of yielding an empty sequence.
+    An empty trading-day window is a hard error. Silent success on a
+    zero-day run produces misleading "no signals" reports and breaks
+    reproducibility, so the iterator raises `ConfigurationError`
+    instead of yielding an empty sequence.
     """
 
     def __init__(

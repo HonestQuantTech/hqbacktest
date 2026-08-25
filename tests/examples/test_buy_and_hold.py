@@ -1,4 +1,4 @@
-"""End-to-end regression test for `examples/buy_and_hold.py` (task 11).
+"""End-to-end regression test for `examples/buy_and_hold.py`.
 
 Drives the public API: builds the same `InMemoryDataPortal` fixture the
 example uses, instantiates `BuyAndHold` from the example module, and locks

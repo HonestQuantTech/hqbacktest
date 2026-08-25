@@ -1,4 +1,4 @@
-"""Corporate-action abstractions (task 9).
+"""Corporate-action abstractions.
 
 v0.1 status:
     * `AdjustmentPolicy` is exposed in `domain.enums` but only `NONE` is
@@ -38,11 +38,11 @@ REQUIRED_CORPORATE_ACTION_FIELDS: tuple[str, ...] = (
     "note",
 )
 
-# Admission criteria for enabling `factor_total_return` (TODO task 9):
-# EACH ledger aspect below must have (a) a written accounting semantic and
-# (b) a hand-computable regression test BEFORE the policy is accepted by
-# `BacktestConfig`. Until every entry is satisfied, the policy stays
-# rejected at config validation time.
+# Admission criteria for enabling `factor_total_return`:
+# EACH ledger aspect below must have (a) a written accounting semantic
+# and (b) a hand-computable regression test BEFORE the policy is
+# accepted by `BacktestConfig`. Until every entry is satisfied, the
+# policy stays rejected at config validation time.
 FACTOR_TOTAL_RETURN_ADMISSION_CRITERIA: tuple[str, ...] = (
     "cash",  # how dividends/splits change cash without fabricating payouts
     "position_quantity",  # how share counts change on splits/bonus issues
@@ -181,7 +181,7 @@ def analyze_factor_series(
     jump_band: Tuple[Decimal, Decimal] = DEFAULT_JUMP_BAND,
     cross_source_tolerance: Decimal = DEFAULT_CROSS_SOURCE_TOLERANCE,
 ) -> List[FactorDiagnostic]:
-    """Same-source factor-quality diagnostics (task 9). Pure function.
+    """Same-source factor-quality diagnostics. Pure function.
 
     Reads a factor series and returns one `FactorDiagnostic` per anomaly:
         * "missing"       - an expected trading day has no factor row;

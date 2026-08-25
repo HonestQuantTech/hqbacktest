@@ -1,4 +1,4 @@
-"""Task 18: strategy isolation + audit-trail integrity tests.
+"""Strategy isolation + audit-trail integrity tests.
 
 Covers:
     * `Order` is frozen after creation: a strategy that mutates the
@@ -268,7 +268,7 @@ def test_out_of_universe_order_appears_in_orders_table():
 
 def test_order_fill_ids_is_immutable():
     """`Order.fill_ids` must be an immutable tuple so a strategy holding
-    a frozen Order cannot append/clear it in place (task 18).
+    a frozen Order cannot append/clear it in place.
 
     A frozen dataclass only blocks attribute *reassignment*; a `list`
     field would still be mutable in place. Switching to `tuple` removes

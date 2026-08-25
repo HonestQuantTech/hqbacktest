@@ -126,10 +126,11 @@ def test_resolve_source_location_with_name_uses_default_root(tmp_path):
 
 
 def test_resolve_source_location_with_absolute_path_splits_into_root_and_name(tmp_path):
-    """Task 22.1: absolute paths are split into (parent_data_root, source_name).
+    """Absolute paths are split into `(parent_data_root, source_name)`.
 
-    This mirrors the documented behaviour: `source` may be either a bare
-    directory name (resolved under `default_data_root`) or an absolute
+    This mirrors the documented behaviour: `source` may be either a
+    bare directory name (resolved under `default_data_root`) or an
+    absolute
     path to the snapshot directory (e.g. `~/.hqdata/tushare`), which is
     split into `(~/.hqdata, tushare)`.
     """
@@ -199,7 +200,7 @@ def test_construction_resolves_snapshot_root(tmp_path):
 
 
 def test_construction_accepts_absolute_path_source_and_splits(tmp_path):
-    """Task 22.1: `HqDataCsvPortal(source=/abs/path)` splits into (parent, name)."""
+    """`HqDataCsvPortal(source=/abs/path)` splits into `(parent, name)`."""
     snap = _build_snapshot(
         tmp_path,
         "tushare",
@@ -326,9 +327,9 @@ def test_calendar_rejects_invalid_is_open(tmp_path):
     snap = tmp_path / "tushare"
     snap.mkdir()
     (snap / "calendar.csv").write_text("date,is_open\n20240102,X\n", encoding="utf-8")
-    # Per task 14, a corrupt calendar is an infrastructure failure: the
-    # portal surfaces it at construction time (via `_resolve_as_of`) so
-    # the engine can never publish a misleading `data_version`.
+    # A corrupt calendar is an infrastructure failure: the portal
+    # surfaces it at construction time (via `_resolve_as_of`) so the
+    # engine can never publish a misleading `data_version`.
     with pytest.raises(InvalidDataError):
         HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
 
@@ -513,9 +514,9 @@ def test_get_bars_caches(tmp_path):
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
     a = portal.get_bars("600000.SH", "20240102", "20240102")
     b = portal.get_bars("600000.SH", "20240102", "20240102")
-    # Task 14: cached lists are returned as defensive copies, never the
-    # internal reference. Strategies must not be able to mutate the
-    # cache by mutating a returned list.
+    # Cached lists are returned as defensive copies, never the internal
+    # reference. Strategies must not be able to mutate the cache by
+    # mutating a returned list.
     assert a == b
     assert a is not b
 
@@ -523,9 +524,9 @@ def test_get_bars_caches(tmp_path):
 def test_get_bars_rejects_missing_daily_file(tmp_path):
     """A trading day without a daily file raises SnapshotFileMissingError.
 
-    Per task 14, a missing whole-day file is an infrastructure failure
-    (distinct from a per-symbol gap) and must propagate so the engine can
-    abort the run with `DATA_ERROR`.
+    A missing whole-day file is an infrastructure failure (distinct
+    from a per-symbol gap) and must propagate so the engine can abort
+    the run with `DATA_ERROR`.
     """
     from hqbacktest.data import SnapshotFileMissingError
 
@@ -561,7 +562,7 @@ def test_get_bars_rejects_date_mismatch_in_daily(tmp_path):
 
 
 def test_get_bars_rejects_wrong_symbol_row(tmp_path):
-    """A per-symbol gap returns `[]`, not an error (task 14).
+    """A per-symbol gap returns `[]`, not an error.
 
     The daily file exists for the trading day but contains no row for
     the requested symbol (suspended / delisted / pre-IPO). This is a

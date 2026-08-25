@@ -11,7 +11,7 @@ DEFAULT_DATA_ROOT = "~/.hqdata"
 DEFAULT_SOURCE = "tushare"
 
 # Calibration snapshot window (139 trading days for the
-# `~/.hqdata/tushare` snapshot on the v0.1.1 release machine).
+# `~/.hqdata/tushare` snapshot).
 CALIBRATION_START = "20260105"
 CALIBRATION_END = "20260731"
 

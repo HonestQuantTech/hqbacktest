@@ -8,7 +8,7 @@ what the strategy can see) and exposes a small ergonomic API:
     view.current_price(symbol) -> latest close within the lookback window
     view.universe() -> list[str]  (as of visible_through)
 
-Task 14 semantics (per `docs/design/mvp-contract.md` and `TODO.md`):
+Semantics (per `docs/design/mvp-contract.md`):
     - `history(bar_count=N)` only queries the relevant slice (the lookback
       window); it does NOT scan the full pre-start window of every symbol.
     - `current_price(symbol)` returns the most recent valid close within the
@@ -58,14 +58,14 @@ class DataView:
     `SENTINEL_NO_HISTORY` in `validators`) that exposes no data:
     `history(...)` returns `[]` and `current_price(...)` returns `None`.
 
-    Task 18: the `portal` attribute is **private** (renamed to
-    `_portal` as a leading-underscore convention). Strategies cannot
-    reach the raw `MarketDataPortal` through its public API — i.e.
-    `view.portal` raises `AttributeError` because the attribute is no
-    longer named `portal`. The leading underscore is a strong social
-    convention ("do not touch from outside"), not a language-level
-    guarantee: a sufficiently determined strategy could still reach
-    the portal via `view._portal` (and from there `context._data_view._portal`).
+    The `portal` attribute is **private** (renamed to `_portal` as a
+    leading-underscore convention). Strategies cannot reach the raw
+    `MarketDataPortal` through its public API — i.e. `view.portal`
+    raises `AttributeError` because the attribute is no longer named
+    `portal`. The leading underscore is a strong social convention
+    ("do not touch from outside"), not a language-level guarantee:
+    a sufficiently determined strategy could still reach the portal
+    via `view._portal` (and from there `context._data_view._portal`).
     That is a Python language limitation (there is no real private
     attribute), not a project defect; we rely on the social convention
     plus contract tests to keep strategies honest. All
@@ -183,7 +183,7 @@ class DataView:
         The result is ordered ascending by date. If `bar_count` exceeds the
         number of available bars, the shorter list is returned.
 
-        Per task 14: when `universe_start` is set, only bars within the
+        When `universe_start` is set, only bars within the
         `[universe_start, visible_through]` window are queried — never the
         full pre-start history. The first-trading-day sentinel returns
         `[]` rather than raising.
@@ -226,19 +226,20 @@ class DataView:
     def current_price(self, symbol: str) -> Optional[Decimal]:
         """Return the most recent valid close on or before `visible_through`.
 
-        Task 14 semantics: walk back up to `CURRENT_PRICE_LOOKBACK` (20)
-        trading days from `visible_through` and return the latest close in
-        that window. Returns `None` when no bar exists in the lookback
-        window (e.g. pre-IPO or first-trading-day sentinel). Suspended
-        symbols therefore keep their last traded price for valuation.
+        Walks back up to `CURRENT_PRICE_LOOKBACK` (20) trading days from
+        `visible_through` and returns the latest close in that window.
+        Returns `None` when no bar exists in the lookback window (e.g.
+        pre-IPO or first-trading-day sentinel). Suspended symbols
+        therefore keep their last traded price for valuation.
 
         `InvalidDataError` propagates: a corrupt row is an infrastructure
         failure that must not be silently folded into "no price".
         `SnapshotFileMissingError` (a whole-day snapshot file missing on
-        disk) is an infrastructure failure and propagates so the run aborts;
-        `MissingDataError` (suspended / delisted / pre-IPO) is absorbed.
+        disk) is an infrastructure failure and propagates so the run
+        aborts; `MissingDataError` (suspended / delisted / pre-IPO) is
+        absorbed.
 
-        Task 15 performance: one `get_calendar` (cached) resolves the
+        Performance: one `get_calendar` (cached) resolves the
         20-trading-day cutoff, then a single `get_bars(cutoff, end)` is
         dispatched. This avoids the old N `get_bars(day, day)` round-trips
         while preserving the 20-**trading-day** lookback bound.
@@ -279,16 +280,16 @@ class DataView:
     def _resolve_history_start(self, bar_count: int) -> str:
         """Compute a bounded start date for `history(bar_count=N)`.
 
-        Task 14: do NOT scan the full pre-start history (19000101). A
-        5-year lookback window is comfortably larger than any realistic
-        `bar_count` (most strategies look back < 250 trading days, roughly
-        one calendar year) and bounds the worst-case file scan. The portal
-        intersects the window with the trading calendar and filters
-        per-symbol gaps, so an over-wide window is cheap and never changes
-        the returned bar sequence.
+        Do NOT scan the full pre-start history (19000101). A 5-year
+        lookback window is comfortably larger than any realistic
+        `bar_count` (most strategies look back < 250 trading days,
+        roughly one calendar year) and bounds the worst-case file scan.
+        The portal intersects the window with the trading calendar and
+        filters per-symbol gaps, so an over-wide window is cheap and
+        never changes the returned bar sequence.
 
         `bar_count` is accepted for API symmetry; a precise
-        calendar-position bound is deferred to task 15's cache design.
+        calendar-position bound is deferred to the lookback helper.
         """
         return _trading_day_lookback_start(self.visible_through)
 

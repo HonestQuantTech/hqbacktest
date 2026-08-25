@@ -1,6 +1,6 @@
 """BacktestEngine: event clock plus controlled strategy context.
 
-Responsibilities after task 10:
+Responsibilities:
     - Build a `MarketDataPortal` from `BacktestConfig` (default: CSV portal).
     - Iterate the trading days returned by the portal (no natural-day loop).
     - Dispatch the five phases per day in contract §4 order.
@@ -18,7 +18,7 @@ Responsibilities after task 10:
     - Compute `PerformanceMetrics` from the equity curve and fills.
     - Maintain a single `EventLog` covering the whole run.
 
-Out of scope (deferred to task 12+):
+Out of scope:
     - Interactive / HTML reports.
 """
 
@@ -90,7 +90,8 @@ class BacktestEngine:
         self._config = config
         self._strategy = strategy if strategy is not None else NullStrategy()
         self._portal = portal
-        # Task 8: broker must share the configured CostModel.
+        # Broker must share the configured CostModel so a strategy can read
+        # commission / stamp-tax rates from a single source of truth.
         cost = config.cost_model
         self._broker = (
             broker if broker is not None else SimulatedBroker(cost_model=cost)
@@ -98,15 +99,14 @@ class BacktestEngine:
         self._event_log = EventLog()
         self._portfolio = Portfolio(initial_cash=config.initial_cash)
         self._factor_diagnostics = FactorDiagnosticCollector()
-        # Task 19: per-symbol cumulative factor history (sorted by
-        # date) so the engine can run holdings-period factor
-        # diagnostics incrementally without re-reading the portal.
+        # Per-symbol cumulative factor history (sorted by date) so the
+        # engine can run holdings-period factor diagnostics incrementally
+        # without re-reading the portal.
         self._factor_history: Dict[str, List[Tuple[str, Decimal]]] = {}
         # Holding-period jump band (relative). A factor ratio outside
         # this band while a symbol is held is a strong dividend / split
-        # signal. 0.1% matches task 19's "cannot be ignored" threshold;
-        # the default `DEFAULT_JUMP_BAND` (0.5, 2.0) is reserved for
-        # general factor-quality diagnostics.
+        # signal. The default `DEFAULT_JUMP_BAND` (0.5, 2.0) is reserved
+        # for general factor-quality diagnostics.
         self._holding_jump_band: Tuple[Decimal, Decimal] = (
             Decimal("0.999"),
             Decimal("1.001"),
@@ -289,10 +289,10 @@ class BacktestEngine:
             # End-of-day settlement: roll today's buys into sellable (T+1).
             self._portfolio.settle_t1(today=today, previous_date=None)
             self._snapshot_equity(today, portal)
-            # Task 19: run holdings-period factor diagnostics for
-            # symbols held or traded today. Diagnostics are pure
-            # observations: they never mutate cash, positions or
-            # equity, and they cannot abort the run.
+            # Run holdings-period factor diagnostics for symbols held or
+            # traded today. Diagnostics are pure observations: they
+            # never mutate cash, positions or equity, and they cannot
+            # abort the run.
             self._run_factor_diagnostics(today, portal)
         except RunFailed:
             raise
@@ -374,7 +374,7 @@ class BacktestEngine:
     def _snapshot_equity(self, today: str, portal: MarketDataPortal) -> None:
         """Record one EquityPoint using today's close for market value.
 
-        Contract §4 + task 14 valuation semantics:
+        Contract §4 valuation semantics:
             * Preferred source: today's valid unadjusted close (D's bar).
             * Fallback: when the held symbol has no bar on `today`
               (suspended / delisted / pre-IPO), use the most recent valid
@@ -432,14 +432,14 @@ class BacktestEngine:
             prices[symbol] = fallback
         market_value = self._portfolio.market_value(prices)
         total_equity = self._portfolio.cash + market_value
-        # Task 17: anchor the first day's `daily_return` and the
-        # `drawdown` series to `initial_cash` (not a zero seed). A first-
-        # day P&L must flow into the equity curve so `∏(1 + r) == 1 +
-        # total_return` and `max_drawdown` can see day-1 drawdowns.
+        # Anchor the first day's `daily_return` and the `drawdown` series
+        # to `initial_cash` (not a zero seed). A first-day P&L must flow
+        # into the equity curve so `∏(1 + r) == 1 + total_return` and
+        # `max_drawdown` can see day-1 drawdowns.
         prev_total = self._equity_curve[-1].total_equity if self._equity_curve else None
         if prev_total is None:
             # First trading day: benchmark the return against initial_cash
-            # (task 17) so a first-day P&L flows into the return series.
+            # so a first-day P&L flows into the return series.
             daily_return = (
                 total_equity / self._config.initial_cash - Decimal("1")
                 if self._config.initial_cash > 0
@@ -450,10 +450,10 @@ class BacktestEngine:
             daily_return = Decimal("0")
         else:
             daily_return = total_equity / prev_total - Decimal("1")
-        # Drawdown: the running peak must include `initial_cash`, otherwise
-        # a first-day loss is silently lost once a later day's equity stays
-        # below initial_cash but above the prior day's equity (task 17:
-        # "回撤峰值序列以 initial_cash 为初始峰值").
+        # Drawdown: the running peak must include `initial_cash`,
+        # otherwise a first-day loss is silently lost once a later day's
+        # equity stays below initial_cash but above the prior day's
+        # equity.
         peak = self._config.initial_cash
         if self._equity_curve:
             peak = max(peak, *(pt.total_equity for pt in self._equity_curve))
@@ -564,9 +564,8 @@ class BacktestEngine:
         """
         for order in pending:
             self._orders[order.order_id] = order
-        # Task 18: fold out-of-universe rejections into the orders
-        # table so the audit trail sees them. These orders never
-        # reached the broker.
+        # Fold out-of-universe rejections into the orders table so the
+        # audit trail sees them. These orders never reached the broker.
         for order in context._consume_out_of_universe_orders():
             self._orders[order.order_id] = order
         results = self._broker.match(
@@ -675,7 +674,7 @@ class BacktestEngine:
         return DataView(portal=self.portal, visible_through=today)
 
     # ------------------------------------------------------------------ #
-    # Task 19: holdings-period factor diagnostics
+    # Holdings-period factor diagnostics
     # ------------------------------------------------------------------ #
 
     def _run_factor_diagnostics(self, today: str, portal: MarketDataPortal) -> None:
@@ -687,19 +686,19 @@ class BacktestEngine:
         the `FactorDiagnosticCollector` and a `DATA_WARNING`
         event for each new anomaly.
 
-        Only symbols with a non-zero position at day-end are scanned
-        (task 19: "持仓涉及的标的"). A symbol that was fully sold
-        (position back to zero) must NOT keep emitting holdings-period
-        warnings — its holding period has ended, and the accumulated
-        factor history is therefore reset.
+        Only symbols with a non-zero position at day-end are
+        scanned (the "持仓涉及的标的" invariant). A symbol that was
+        fully sold (position back to zero) must NOT keep emitting
+        holdings-period warnings — its holding period has ended, and
+        the accumulated factor history is therefore reset.
 
         Diagnostics are pure observations: they MUST NOT mutate
-        cash, positions, or equity (contract task 9 invariant).
+        cash, positions, or equity (contract invariant: factor
+        diagnostics never fabricate corporate-action accounting).
         Missing factors or whole-day snapshot failures are silently
-        skipped so the run continues (the existing
-        `_snapshot_equity` / broker paths raise DATA_ERROR on
-        infrastructure failures, and we do not want to raise a
-        second error here).
+        skipped so the run continues (the existing `_snapshot_equity`
+        / broker paths raise DATA_ERROR on infrastructure failures,
+        and we do not want to raise a second error here).
         """
         relevant = {
             sym for sym, pos in self._portfolio.positions.items() if pos.quantity > 0

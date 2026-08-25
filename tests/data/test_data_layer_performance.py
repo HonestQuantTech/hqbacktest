@@ -1,4 +1,4 @@
-"""Performance and cache-reuse smoke tests for task 15.
+"""Performance and cache-reuse smoke tests for the data layer.
 
 Covers:
     * The per-day CSV files are parsed **at most once** per run; calling
@@ -198,9 +198,9 @@ def test_factor_csv_parsed_at_most_once(tmp_path, monkeypatch):
 def test_bar_objects_reused_across_overlapping_queries(tmp_path):
     """`get_bars` overlapping windows must return the same `Bar` instances.
 
-    Memory control: a fresh object per call would multiply allocation by
-    the number of overlapping queries. Task 15 says bar objects are
-    cached and reused.
+    Memory control: a fresh object per call would multiply
+    allocation by the number of overlapping queries. Bar objects are
+    cached and reused across overlapping queries.
     """
     symbols = ["600000.SH"]
     days = ["20240102", "20240103", "20240104"]
@@ -265,13 +265,13 @@ def test_perf_smoke_50_symbols_250_days_history(tmp_path):
     symbols = [f"{600000 + i:06d}.SH" for i in range(50)]
     days = []
     # 250 sequential calendar-valid YYYYMMDD strings starting at 20240102.
-    # Task 22.3: the previous hand-rolled generator used an integer counter
-    # with ``if d % 100 == 32: d += 70`` to skip month boundaries. That
-    # skip only caught the day-32 rollover that follows a 31-day month,
-    # so it emitted impossible dates for shorter months (`20240230`,
-    # `20240231`, `20240431`, `20240631`), which the old (len+isdigit
-    # only) `validate_yyyymmdd` silently accepted. We now iterate via
-    # `datetime` so the calendar is correct by construction.
+    # Earlier the fixture used an integer counter with
+    # ``if d % 100 == 32: d += 70`` to skip month boundaries, but that
+    # only caught the day-32 rollover after a 31-day month and emitted
+    # impossible dates for shorter months (`20240230`, `20240231`,
+    # `20240431`, `20240631`) — the bare `len == 8 and isdigit()` check
+    # in `validate_yyyymmdd` silently accepted them. Iterating via
+    # `datetime` keeps the calendar correct by construction.
     d = date(2024, 1, 2)
     while len(days) < 250:
         days.append(d.strftime("%Y%m%d"))
@@ -337,7 +337,8 @@ def test_snapshot_file_missing_propagates_through_cumulative_cache(
 ):
     """If a daily file is missing on disk, the cumulative cache path must
     still raise `SnapshotFileMissingError` rather than silently fold the
-    failure into an empty list (task 14 invariant preserved).
+    failure into an empty list (missing-file vs per-symbol-gap
+    invariant).
     """
     symbols = ["600000.SH"]
     days = ["20240102", "20240103"]
@@ -378,10 +379,10 @@ def test_forward_extend_does_not_parse_unqueried_files(tmp_path):
     """Forward extension only reads (cend, end]; never files before the
     already-covered range.
 
-    Regression for a bug where the forward-extend path used lo="00000000",
-    parsing every daily file from the epoch up to `end` — including files
-    the strategy never queried. A missing/corrupt file outside the query
-    window must not abort the run (task 15 + task 14 "distinguishable
+    Regression for a bug where the forward-extend path parsed every
+    daily file from the epoch up to `end` — including files the
+    strategy never queried. A missing/corrupt file outside the query
+    window must not abort the run (per-day / missing-file "distinguishable
     failure" invariant).
     """
     symbols = ["600000.SH"]

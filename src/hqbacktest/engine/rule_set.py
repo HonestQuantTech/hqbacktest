@@ -1,4 +1,4 @@
-"""TradingRuleSet: pluggable A-share rules (task 8).
+"""TradingRuleSet: pluggable A-share rules.
 
 The rule set runs BEFORE the broker constructs a fill. Any rule may
 return a denial with a deterministic `RejectReason`; the engine then

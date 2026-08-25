@@ -1,4 +1,4 @@
-"""Runner: build engine, run, write per-run output directory (task 12).
+"""Runner: build engine, run, write per-run output directory.
 
 The runner is invoked by `hqbacktest run --config <file> --output <dir>`.
 It is also usable directly (`run_from_file(path)`) for tests.
@@ -56,10 +56,10 @@ def run_from_file(
     `[output].directory` when given. Returns a `RunResult` with the exit
     code (0 on success) and the path of the output directory. The CLI
     converts this to a process exit status. `force=True` lets the
-    runner overwrite a non-empty output directory (task 20).
+    runner overwrite a non-empty output directory.
 
-    Task 20: prepend the config's directory and cwd to `sys.path` so
-    the user-supplied strategy module can be imported by name alone
+    Prepends the config's directory and cwd to `sys.path` so the
+    user-supplied strategy module can be imported by name alone
     (the documented first-mile workflow).
     """
     _prepare_sys_path(config_path)
@@ -79,10 +79,9 @@ def run_from_config(
     """Build the engine from a validated `ConfigFile` and run the backtest.
 
     `force=True` lets the run overwrite an output directory that
-    already contains prior-run files (task 20). Without `force`,
-    mixing a fresh run with stale CSVs / summary.json from a
-    previous run is rejected with exit code 3 to keep the audit
-    trail honest.
+    already contains prior-run files. Without `force`, mixing a fresh
+    run with stale CSVs / summary.json from a previous run is
+    rejected with exit code 3 to keep the audit trail honest.
     """
     effective_output = output_dir or config_file.output_directory
     try:
@@ -157,10 +156,10 @@ def run_from_config(
     )
     result.save(str(output_path))
 
-    # Task 19: warn the operator when factor diagnostics surfaced a
-    # holding-period jump. The NAV excludes dividends (policy="none"),
-    # so this is the only place a human sees the bias. The CLI is the
-    # operator's terminal; we print one summary line.
+    # Warn the operator when factor diagnostics surfaced a holding-period
+    # jump. The NAV excludes dividends (policy="none"), so this is the
+    # only place a human sees the bias. The CLI is the operator's
+    # terminal; we print one summary line.
     holdings_diag = result.factor_diagnostics or []
     if holdings_diag:
         print(
@@ -228,7 +227,7 @@ def _write_run_metadata(
 ) -> None:
     """Record package/python/source/git info so the run is self-describing.
 
-    Task 22.2: the path fields (`config_path`, `output_directory`,
+    The path fields (`config_path`, `output_directory`,
     `config_output_directory`) are persisted as **relative paths**
     (relative to the run-time cwd) so the run is reproducible across
     machines without leaking `/home/<user>` style directory layouts.
@@ -262,12 +261,11 @@ def _write_run_metadata(
 def _relativize_path(path_str: Optional[str]) -> Optional[str]:
     """Return `path_str` as a path relative to the run-time cwd.
 
-    Task 22.2: prevents `run_metadata.json` from carrying absolute
-    paths like `/home/<user>/run.toml` or
-    `/home/<user>/results/run-1`. Falls back to the bare filename when
-    the path cannot be relativized (so we never crash the runner nor
-    leak an absolute path). Returns `None` unchanged when `path_str`
-    is `None`.
+    Prevents `run_metadata.json` from carrying absolute paths like
+    `/home/<user>/run.toml` or `/home/<user>/results/run-1`. Falls
+    back to the bare filename when the path cannot be relativized
+    (so we never crash the runner nor leak an absolute path).
+    Returns `None` unchanged when `path_str` is `None`.
 
     Implementation note: `os.path.relpath` is intentional rather than
     `pathlib.Path.relative_to` because the former gracefully handles
@@ -290,13 +288,12 @@ def _git_commit() -> Optional[str]:
     """Return the hqbacktest package's own short git commit, or `None`
     if unavailable.
 
-    Task 20: the commit recorded here is the commit of the
-    hqbacktest repo, NOT the user's cwd repository. A user
-    running the CLI from inside their own strategy repo gets
-    hqbacktest's commit (the engine that produced the result);
-    if they want their strategy's commit too they can record it
-    themselves in the config. We never raise from here; failure
-    to read git is a no-op.
+    The commit recorded here is the commit of the hqbacktest repo,
+    NOT the user's cwd repository. A user running the CLI from
+    inside their own strategy repo gets hqbacktest's commit (the
+    engine that produced the result); if they want their strategy's
+    commit too they can record it themselves in the config. We never
+    raise from here; failure to read git is a no-op.
     """
     try:
         import hqbacktest as _hq_pkg
@@ -320,9 +317,9 @@ def _git_commit() -> Optional[str]:
 def _prepare_sys_path(config_path: str) -> None:
     """Add the config file's directory and cwd to `sys.path`.
 
-    Task 20: lets the user-supplied strategy module be imported by
-    name alone (e.g. `module = 'strategy'`) without having to add
-    `sys.path` boilerplate in the strategy file. Mirrors what
+    Lets the user-supplied strategy module be imported by name alone
+    (e.g. `module = 'strategy'`) without having to add `sys.path`
+    boilerplate in the strategy file. Mirrors what
     `python -m hqbacktest run` would do for in-tree imports.
     """
     candidates: List[str] = []

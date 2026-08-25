@@ -1,4 +1,4 @@
-"""End-to-end + save/load tests for task 10."""
+"""End-to-end + save/load tests for `BacktestResult`."""
 
 import json
 from decimal import Decimal
@@ -90,8 +90,8 @@ def test_engine_builds_equity_curve_for_three_days():
 
 
 def test_engine_empty_calendar_raises():
-    """Task 20: an empty trading-day window must raise rather than
-    silently produce an empty result.
+    """An empty trading-day window must raise rather than silently
+    produce an empty result.
     """
     from hqbacktest.engine.errors import ConfigurationError
 
@@ -305,9 +305,9 @@ def test_save_creates_output_directory(tmp_path):
 
 
 def test_engine_valuation_uses_lookback_for_suspended_symbol():
-    """Contract §4 + task 14: a suspended holding is valued at the most
-    recent valid close within the lookback window and a DATA_WARNING is
-    recorded. The run continues normally.
+    """A suspended holding is valued at the most recent valid close
+    within the lookback window and a DATA_WARNING is recorded. The
+    run continues normally.
     """
 
     class BuyHold(BaseStrategy):

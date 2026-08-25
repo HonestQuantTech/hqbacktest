@@ -1,6 +1,6 @@
 """HqDataCsvPortal: production portal backed by hqdata CSV snapshots.
 
-Rules enforced here (TODO task 4 + task 15):
+Rules enforced here:
     - **No `import hqdata`**, no `hqdata.api`, no `hqdata.sources`, no SDK
       imports, no network access.
     - Reads only the CSV files dropped by the hqdata CLI at
@@ -14,11 +14,11 @@ Rules enforced here (TODO task 4 + task 15):
         - `source` is the directory name under `data_root` (e.g. `tushare`).
     - `get_universe(date)` reads exactly `stock_list/{date}.csv`; missing
       snapshot raises `SnapshotFileMissingError` and never falls back to
-      other dates (task 14).
+      other dates.
     - Cache keys include the normalized `data_root` so two portals pointing
       at different roots cannot share entries.
 
-Task 15 performance design:
+Performance design:
     - Each `stock_daily/{D}.csv` is parsed at most once per run; the
       parsed result is cached as `_daily_index[date] = {symbol: Bar}`.
     - Each `stock_factor/{D}.csv` is parsed at most once per run; cached
@@ -66,7 +66,7 @@ def resolve_source_location(
 ) -> Tuple[str, str]:
     """Map a source reference to `(data_root, source_name)`.
 
-    Per task 22.1, `source` may be either:
+    `source` may be either:
 
     * a bare directory name (e.g. ``"tushare"``). It is paired with
       ``default_data_root`` (the ``[data].data_root`` config, default
@@ -133,7 +133,7 @@ class HqDataCsvPortal(MarketDataPortal):
         self._source_label: str = source  # the original string, for display
         self._root_path: Path = Path(self._data_root) / self._source_name
         self._cache = DataCache()
-        # Task 15: per-day file caches (`{date: {symbol: Bar/factor}}`) and
+        # Per-day file caches (`{date: {symbol: Bar/factor}}`) and
         # per-symbol cumulative views. The per-day cache ensures each CSV
         # file is parsed at most once; the cumulative view makes
         # `get_bars`/`get_factor` O(log N) regardless of window.
@@ -281,8 +281,8 @@ class HqDataCsvPortal(MarketDataPortal):
     def get_universe(self, date: str, include_bj: bool = False) -> List[str]:
         """Return the historical stock list as of `date`.
 
-        Per task 14: `.BJ` (Beijing Stock Exchange) symbols are excluded by
-        default since v0.1 does not yet support BSE-specific trading rules
+        `.BJ` (Beijing Stock Exchange) symbols are excluded by default
+        since v0.1 does not yet support BSE-specific trading rules
         (no first-day limit-up/down, distinct trading calendar, etc.).
         Pass `include_bj=True` to opt in.
         """
@@ -328,7 +328,7 @@ class HqDataCsvPortal(MarketDataPortal):
     def get_bars(self, symbol: str, start: str, end: str) -> List[Bar]:
         """Return bars for `symbol` in [start, end], **allowing per-day gaps**.
 
-        Per-suspension / pre-IPO / post-delisting semantics (task 14):
+        Per-suspension / pre-IPO / post-delisting semantics:
             - The window is intersected with the trading calendar; days
               inside the window with no row for `symbol` are simply absent
               from the result.
@@ -344,7 +344,7 @@ class HqDataCsvPortal(MarketDataPortal):
               returns `[]` — an empty result is a legitimate business
               outcome, matching `InMemoryDataPortal`.
 
-        Task 15 performance:
+        Performance:
             - The portal maintains a per-symbol cumulative bar list; this
               method extends that list lazily and slices it with `bisect`,
               so per-call cost is O(log N) regardless of the window.
@@ -371,7 +371,7 @@ class HqDataCsvPortal(MarketDataPortal):
         date. Only the missing head/tail ranges are scanned — we never
         re-read files outside [start, end]. This is what guarantees each
         daily CSV is parsed at most once, and only when a query actually
-        needs it (task 15).
+        needs it.
         """
         cumulative = self._symbol_bars.get(symbol)
         if cumulative and cumulative[0].date <= start and cumulative[-1].date >= end:
@@ -469,9 +469,8 @@ class HqDataCsvPortal(MarketDataPortal):
                 f"CSV date(s) {file_dates} do not match filename {date}",
             )
         # Build a {symbol: Bar} map for the day. `itertuples` is roughly
-        # 25x faster than `iterrows` on real-data snapshots (task 15
-        # benchmark). Duplicate symbol rows are still rejected as a
-        # data error.
+        # 25x faster than `iterrows` on real-data snapshots. Duplicate
+        # symbol rows are still rejected as a data error.
         result: Dict[str, Bar] = {}
         for row in df.itertuples(index=False):
             sym = getattr(row, "symbol")
@@ -510,7 +509,7 @@ class HqDataCsvPortal(MarketDataPortal):
         day simply omits that day from the result, while a missing whole-day
         factor file raises `SnapshotFileMissingError`.
 
-        Task 15 performance: factor files are parsed once per day; the
+        Performance: factor files are parsed once per day; the
         per-symbol cumulative view enables O(log N) window slicing.
         """
         validate_symbol(symbol)
@@ -583,8 +582,8 @@ class HqDataCsvPortal(MarketDataPortal):
                 f"CSV date(s) {file_dates} do not match filename {date}",
             )
         result: Dict[str, Decimal] = {}
-        # `itertuples` mirrors `_parse_daily_file` (task 15: ~25x faster
-        # than `iterrows` on real-data snapshots).
+        # `itertuples` mirrors `_parse_daily_file` (~25x faster than
+        # `iterrows` on real-data snapshots).
         for row in df.itertuples(index=False):
             sym = getattr(row, "symbol")
             if sym in result:

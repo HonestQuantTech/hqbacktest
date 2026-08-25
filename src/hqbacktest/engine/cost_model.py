@@ -1,4 +1,4 @@
-"""CostModel: pluggable fee computation (task 8).
+"""CostModel: pluggable fee computation.
 
 Every fill carries three fees:
     * `commission`   - per-side, proportional to turnover with a floor.
@@ -42,7 +42,7 @@ class DefaultCostModel:
     """v0.1 default cost model.
 
     All rates are explicit configuration; nothing is hidden in code
-    constants (TODO task 8 verification).
+    constants.
     """
 
     commission_rate: Decimal = Decimal("0.00025")  # 0.025% of turnover

@@ -1,4 +1,4 @@
-"""Moving-average example (task 11).
+"""Moving-average example.
 
 Run from the project root with::
 

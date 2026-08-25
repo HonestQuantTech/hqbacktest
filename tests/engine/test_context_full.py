@@ -1,9 +1,10 @@
-"""Tests for the full Context API (read-only accessors + order intents + lifecycle).
+"""Tests for the full Context API (read-only accessors + order intents
++ lifecycle).
 
-These tests use a tiny three-day `InMemoryDataPortal` snapshot and exercise
-Context directly, without a `BacktestEngine`. The goal is to lock in the
-contract for task 6: read-only access, no ledger mutation, lot alignment,
-order-type allow-list, lifecycle errors.
+These tests use a tiny three-day `InMemoryDataPortal` snapshot and
+exercise Context directly, without a `BacktestEngine`. The goal is to
+lock in the contract for Context: read-only access, no ledger
+mutation, lot alignment, order-type allow-list, lifecycle errors.
 """
 
 from dataclasses import dataclass

@@ -19,11 +19,7 @@ from .runner import RunResult, _prepare_sys_path, run_from_file
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hqbacktest",
-        description=(
-            "Run an A-share backtest from a TOML config file. v0.1 ships a "
-            "complete task 1-11 engine; this CLI is the documented end-user "
-            "entry point (task 12)."
-        ),
+        description=("Run an A-share backtest from a TOML config file."),
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -48,8 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help=(
-            "Overwrite an output directory that already contains "
-            "prior-run files (task 20)."
+            "Overwrite an output directory that already contains " "prior-run files."
         ),
     )
 
@@ -69,16 +64,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
-    # Task 20: prepend the config file's directory and the current
-    # working directory to `sys.path` so the strategy module can be
-    # resolved by name alone, matching the documented "first-mile"
-    # workflow. This mirrors what `python -m` would do for an
-    # in-tree import and makes the console script behave the same
-    # way as `python -m hqbacktest run`.
+    # Prepend the config file's directory and the current working directory
+    # to `sys.path` so the strategy module can be resolved by name alone,
+    # matching the documented "first-mile" workflow. This mirrors what
+    # `python -m` would do for an in-tree import and makes the console
+    # script behave the same way as `python -m hqbacktest run`.
     _prepare_sys_path(args.config)
     # Honor a test-only env hook so the CLI can be driven against an
     # in-memory portal in subprocess tests without touching the real
-    # `~/.hqdata` snapshot. Task 20.
+    # `~/.hqdata` snapshot.
     _maybe_load_test_bootstrap()
     try:
         result: RunResult = run_from_file(
@@ -102,8 +96,8 @@ def _run(args: argparse.Namespace) -> int:
 def _maybe_load_test_bootstrap() -> None:
     """If `HQBACKTEST_CLI_BOOTSTRAP` is set, import that module by name.
 
-    Test-only hook used by `tests/cli/test_task20_cli.py` to swap the
-    portal builder in a subprocess without writing to the real
+    Test-only hook used by `tests/cli/test_cli_validation.py` to swap
+    the portal builder in a subprocess without writing to the real
     `~/.hqdata` snapshot. Production users never set this.
     """
     name = os.environ.get("HQBACKTEST_CLI_BOOTSTRAP")

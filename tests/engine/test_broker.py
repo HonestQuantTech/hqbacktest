@@ -1,6 +1,6 @@
 """Tests for the SimulatedBroker and the engine-side matching flow.
 
-Covers task 7 verification items:
+Covers:
     * buy happy path / sell happy path
     * insufficient cash / insufficient sellable shares
     * missing bar (suspended / non-trading day)
@@ -310,7 +310,7 @@ def test_engine_cancels_leftover_orders_with_backtest_ended():
 
 
 def test_engine_fill_links_order_and_fill_ids():
-    """Task 7 verification: order/fill/ledger IDs stay associated."""
+    """Order / fill / ledger IDs stay associated end-to-end."""
 
     class BuyOnce(BaseStrategy):
         def initialize(self, context):
@@ -611,12 +611,12 @@ def test_engine_settle_t1_rolls_pending_buy_into_sellable():
 
 
 def test_engine_conservation_holds_at_every_day_end():
-    """Task 7 verification: cash + Σ(quantity × avg_cost) == initial cash +
-    realized pnl at the end of EVERY trading day, not just at run end.
+    """Cash + Σ(quantity × avg_cost) == initial cash + realized pnl at
+    the end of EVERY trading day, not just at run end.
 
-    We use a zero-fee cost model so the identity is exact (realized pnl is
-    always 0 and avg_cost is exactly 10.0000). Task 8 added fees; this test
-    locks the conservation invariant under the no-fee special case.
+    We use a zero-fee cost model so the identity is exact (realized
+    pnl is always 0 and avg_cost is exactly 10.0000). This test locks
+    the conservation invariant under the no-fee special case.
     """
 
     from hqbacktest.engine.cost_model import Cost, CostModel

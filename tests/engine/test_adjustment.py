@@ -1,4 +1,4 @@
-"""Tests for task 9: corporate-action design threshold + factor diagnostics.
+"""Corporate-action design threshold + factor diagnostics.
 
 These cover the TODO verification items:
     * "配置只接受 AdjustmentPolicy=none, 其他值均带明确原因拒绝"
@@ -353,7 +353,7 @@ def test_engine_uses_unadjusted_prices_throughout_run():
 
 
 # --------------------------------------------------------------------- #
-# analyze_factor_series: the four diagnostic kinds (TODO task 9 验证)
+# analyze_factor_series: the four diagnostic kinds
 # --------------------------------------------------------------------- #
 
 DATES = ["20240102", "20240103", "20240104"]
@@ -426,7 +426,7 @@ def test_analyze_diagnostics_carry_symbol_and_traceable_detail():
 
 def test_analyze_never_touches_ledger_state():
     """The analyzer is pure: running it over anomalous factors changes
-    neither the portfolio nor its positions (TODO task 9 验证)."""
+    neither the portfolio nor its positions."""
     portfolio = Portfolio(initial_cash=Decimal("100000"))
     portfolio.get_position("600000.SH").update_buy(100, Decimal("10"))
     analyze_factor_series(
@@ -448,8 +448,8 @@ def test_diagnostic_kinds_constant_matches_validation():
 
 
 def test_admission_criteria_cover_every_ledger_aspect():
-    """TODO task 9: the factor_total_return admission standard must spell out
-    cash / quantity / sellable / cost / fills / valuation / metrics."""
+    """The factor_total_return admission standard must spell out cash /
+    quantity / sellable / cost / fills / valuation / metrics."""
     for aspect in (
         "cash",
         "position_quantity",

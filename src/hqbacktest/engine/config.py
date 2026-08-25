@@ -1,8 +1,12 @@
 """BacktestConfig: minimum user-facing configuration for the engine.
 
-Task 5 added date + cash + source fields. Task 8 added pluggable
-`TradingRuleSet` and `CostModel` (explicit fees). Task 9 added the
-`adjustment_policy` field with strict "none"-only validation.
+Fields:
+    * `start_date` / `end_date` / `initial_cash` / `source` — the
+      window, capital, and data source.
+    * `cost_model` — pluggable fee computation (default A-share rates).
+    * `rule_set` — pluggable trading rules (default A-share rule set).
+    * `adjustment_policy` — strict "none"-only validation; any other
+      value is rejected at config validation.
 """
 
 from dataclasses import dataclass, field
@@ -35,8 +39,8 @@ class BacktestConfig:
     rather than `DataPortalNotConfigured`).
 
     `rule_set` and `cost_model` are pluggable; the engine constructs them
-    from defaults if not supplied. Rates in `DefaultCostModel` are explicit
-    (TODO task 8 verification: no hidden constants).
+    from defaults if not supplied. Rates in `DefaultCostModel` are
+    explicit (no hidden constants).
 
     `adjustment_policy` MUST be "none" in v0.1; any other value is
     rejected at validation time. The corresponding enum lives in
@@ -88,8 +92,8 @@ class BacktestConfig:
         if not isinstance(self.metrics, MetricsConfig):
             raise ConfigurationError("metrics must be a MetricsConfig instance")
         # Adjustment policy: v0.1 only accepts "none". Any other value is
-        # rejected with an explicit reason (TODO task 9 verification:
-        # "配置只接受 AdjustmentPolicy=none, 其他值均带明确原因拒绝").
+        # rejected with an explicit reason ("配置只接受
+        # AdjustmentPolicy=none, 其他值均带明确原因拒绝").
         if not isinstance(self.adjustment_policy, str):
             raise ConfigurationError("adjustment_policy must be a string")
         if self.adjustment_policy != V01_ADJUSTMENT_POLICY:

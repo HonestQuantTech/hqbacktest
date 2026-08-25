@@ -1,12 +1,12 @@
-"""Performance metrics (task 10 + task 17 + task 23).
+"""Performance metrics.
 
 Formulas (all documented in README and contract doc):
     * `total_return`            = (final_equity / initial_equity) - 1
     * `daily_return`            = `EquityPoint.daily_return` as written
                                   by the engine. The engine anchors day 0
                                   to `initial_cash` so a first-day P&L
-                                  flows into the return series (task 17).
-                                  The chained-product identity
+                                  flows into the return series. The
+                                  chained-product identity
                                   `∏(1 + daily_return) == 1 + total_return`
                                   therefore holds for any run.
     * `annualized_return`       = (1 + total_return) ** (n /
@@ -19,8 +19,8 @@ Formulas (all documented in README and contract doc):
                                   `None` when fewer than 2 daily returns
                                   are available (single-day run, or two
                                   trading days with only one distinct
-                                  return — task 23). Reports `0` only
-                                  when the series is genuinely flat.
+                                  return). Reports `0` only when the
+                                  series is genuinely flat.
     * `annualized_volatility`   = daily_volatility * sqrt(annual_trading_days)
                                   `None` iff `daily_volatility is None`.
     * `sharpe_ratio`            = (annualized_return - risk_free_rate) /
@@ -38,18 +38,16 @@ Formulas (all documented in README and contract doc):
                                   cost / total SELL fills; `None` if no
                                   SELL fills
 
-Task 23: the daily-return series passed to `stdev` is the engine's
-own `EquityPoint.daily_return` series, NOT a re-derivation from
-`total_equity`. Re-derivation (the pre-task-23 implementation)
-silently dropped the day-0 return by seeding `[Decimal("0")]`, so a
-2-day backtest with one real day-1 return reported
-`daily_volatility=None` even though `max_drawdown` saw the day-0
-loss correctly. Reading `EquityPoint.daily_return` directly makes
-the volatility / drawdown / Sharpe trio agree on what counts as a
-"first day".
+The daily-return series passed to `stdev` is the engine's own
+`EquityPoint.daily_return` series, NOT a re-derivation from
+`total_equity`. Re-deriving from `total_equity` would silently drop
+the day-0 return because the first day has no predecessor to divide
+by — the loop `equity[t] / equity[t-1] - 1` starts at t=1 and the
+day-0 return would never reach `stdev`. Reading
+`EquityPoint.daily_return` directly keeps the volatility /
+drawdown / Sharpe trio consistent on what counts as a "first day".
 
-Edge cases (per task 10/17/23 verification "空回测 / 单日 / 零波动 /
-全亏损 / 无交易 / 样本不足"):
+Edge cases ("空回测 / 单日 / 零波动 / 全亏损 / 无交易 / 样本不足"):
     * `len(equity_curve) == 0` (empty run): all metrics 0 or `None`; notes
       record "no trading days".
     * `len(equity_curve) == 1` (single day): `total_return` is the only
@@ -146,18 +144,18 @@ def compute_metrics(
 ) -> PerformanceMetrics:
     """Compute all v0.1 metrics from an equity curve and the fill list.
 
-    Task 23 invariants:
+    Invariants:
         * `daily_volatility` reads `EquityPoint.daily_return` directly
           (the same value the engine wrote, anchored to `initial_cash`
           on day 0). Re-deriving from `total_equity` would lose the
           day-0 return: the first day has no predecessor `total_equity`
           to divide by, so an `equity[t] / equity[t-1] - 1` loop that
-          starts at t=1 silently drops it — that was the pre-task-23 bug.
+          starts at t=1 silently drops it.
         * `daily_volatility` is `None` whenever fewer than 2 daily
           returns are available (single-day run, or a multi-day run
           whose `daily_return` values collapse to a single distinct
           sample). It is `0` only when the series is genuinely flat —
-          task 17 forbids returning `0` for undefined statistics.
+          contract rule forbids returning `0` for undefined statistics.
         * All Decimal metrics that involve `float` arithmetic go
           through `Decimal(str(...))` so the ledger never holds a
           `Decimal` constructed directly from a binary float (contract
@@ -190,7 +188,7 @@ def compute_metrics(
             # exponentiation), then re-encode through str() so the
             # resulting Decimal never directly inherits binary-float
             # bits. Quantize to a fixed precision so summary.json stays
-            # clean (task 17).
+            # clean.
             exponent = float(n_days) / float(config.annual_trading_days)
             annualized_return = Decimal(str(float(growth) ** exponent)).quantize(
                 _METRIC_QUANT
@@ -198,11 +196,6 @@ def compute_metrics(
 
     # Daily volatility (per-day stdev) and its annualisation; Sharpe uses
     # the annualised pair so the units match.
-    #
-    # Task 23: the series passed to `stdev` is the engine's own
-    # `EquityPoint.daily_return` (already anchored to `initial_cash`
-    # for day 0 by `BacktestEngine._publish_equity_point`). Re-deriving
-    # from `total_equity` would silently drop the day-0 return.
     daily_volatility: Optional[Decimal]
     annualized_volatility: Optional[Decimal]
     sharpe_ratio: Optional[Decimal]

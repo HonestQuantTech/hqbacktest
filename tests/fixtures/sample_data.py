@@ -1,4 +1,4 @@
-"""Shared test fixtures for the end-to-end example tests (task 11).
+"""Shared test fixtures for the end-to-end example tests.
 
 The data here is intentionally small, deterministic and hand-traceable.
 The end-to-end tests in `tests/examples/` use these fixtures and verify
