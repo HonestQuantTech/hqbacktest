@@ -1,4 +1,4 @@
-"""Helper strategy modules for the CLI tests (task 12).
+"""Helper strategy modules for the CLI tests.
 
 These are intentionally separate from the public example modules so
 `resolve_strategy` exercises kwargs plumbing without affecting the

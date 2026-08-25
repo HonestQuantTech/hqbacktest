@@ -1,4 +1,4 @@
-"""Task 20: CLI first-mile + README honesty regression tests.
+"""CLI validation + first-mile regression tests.
 
 Covers:
     * Console-script (`hqbacktest run`) works from a fresh working
@@ -236,13 +236,10 @@ def test_initial_cash_negative_rejected(tmp_path):
 def test_start_date_impossible_rejected(tmp_path):
     """An impossible calendar date (`20241399`) must be rejected.
 
-    Task 22.3: the prior version of this test set `end_date='20240104'`
-    which is **lexicographically smaller** than `'20241399'`, so the
-    failure was triggered by the `start > end` ordering check rather
-    than the impossible-date check. This revision uses an
-    `end_date` that is lex-greater AND a real calendar date
-    (`'20241231'`) so the failure mode is unambiguously the
-    impossible-date validation in `validate_yyyymmdd`.
+    The `end_date` is lex-greater AND a real calendar date so the
+    failure mode is unambiguously the impossible-date validation in
+    `validate_yyyymmdd` (and not the `start > end` ordering check
+    that would fire if both dates were lex-comparable).
     """
     cfg = tmp_path / "c.toml"
     cfg.write_text(
@@ -275,7 +272,8 @@ def test_start_date_impossible_rejected(tmp_path):
 
 
 def test_end_date_impossible_rejected(tmp_path):
-    """Task 22.3: impossible `end_date` must also be rejected.
+    """An impossible `end_date` must also be rejected.
+
     Uses `end_date='20240230'` (Feb 30, non-leap year) with a real,
     lex-smaller `start_date` so the failure mode is the impossible
     date, not the `start > end` check.
@@ -416,7 +414,7 @@ def test_order_value_accepts_str_cash():
 
 def test_order_target_value_accepts_int_cash():
     """`order_target_value(symbol, 15000)` (int) must also accept an
-    int/str monetary literal (task 20), not only `Decimal`."""
+    int/str monetary literal, not only `Decimal`."""
 
     class TargetSpend(BaseStrategy):
         def initialize(self, context):
@@ -469,8 +467,7 @@ def test_empty_window_cli_returns_exit_2(tmp_path):
 
 def test_git_commit_reports_package_commit_or_none():
     """`_git_commit()` must not raise and returns either a short hex
-    string or `None`. It is documented as a best-effort lookup
-    (task 20).
+    string or `None`. Best-effort lookup.
     """
     result = _git_commit()
     assert result is None or (isinstance(result, str) and len(result) >= 4)
@@ -478,8 +475,7 @@ def test_git_commit_reports_package_commit_or_none():
 
 def test_run_metadata_records_package_version(tmp_path):
     """`run_metadata.json` must record the hqbacktest package
-    version and the configured start/end dates (task 20: rename
-    `git_commit` semantics)."""
+    version and the configured start/end dates."""
     from hqbacktest.cli import runner
     from hqbacktest.cli.config import load_config_file
 

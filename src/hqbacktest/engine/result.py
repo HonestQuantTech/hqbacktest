@@ -174,8 +174,7 @@ class BacktestResult:
     @classmethod
     def load(cls, output_dir: str) -> "BacktestResult":
         """Rehydrate a `BacktestResult` from disk. Order/fill IDs and dates
-        are preserved as strings (preserves semantics per task 10 verification
-        "导出再读入后订单 ID、金额和日期没有丢失语义")."""
+        are preserved as strings so the round-trip preserves semantics."""
         out = Path(output_dir)
         if not out.exists():
             raise FileNotFoundError(f"output directory not found: {output_dir}")

@@ -87,7 +87,7 @@ def test_get_bars_rejects_window_start_after_end():
 
 
 def test_get_bars_returns_empty_when_window_empty():
-    """Task 14: a window with no bars returns [] (per-symbol gap semantics)."""
+    """Per-symbol gap (no bars for symbol in window) returns [] (per-symbol gap semantics)."""
     p = InMemoryDataPortal()
     p.add_bar(_bar("600000.SH", "20240102"))
     assert p.get_bars("600000.SH", "20240201", "20240205") == []
@@ -100,7 +100,7 @@ def test_get_bars_rejects_invalid_symbol():
 
 
 def test_universe_exact_date_only_no_walk_back():
-    """Task 14: per-date snapshot semantics; no implicit walk-back.
+    """Per-date snapshot semantics; no implicit walk-back.
 
     The in-memory portal must match the production CSV portal which only
     looks up the snapshot for the exact requested date. This avoids the
@@ -203,7 +203,7 @@ def test_constructor_rejects_initial_bar_outside_known_calendar():
 
 
 def test_missing_bar_on_trading_day_returns_empty_list():
-    """Task 14: a fully empty window returns [], not MissingDataError.
+    """Empty-window (no trading days) returns [], not MissingDataError.
 
     "停牌/缺行" is a per-symbol gap, a normal business outcome. The
     portal surfaces it as an empty list so the caller (engine, DataView)

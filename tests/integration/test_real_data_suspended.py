@@ -1,7 +1,7 @@
 """Integration scenario 3: universe with a suspended stock must not
 crash; warnings must be traceable.
 
-Calibrated against the `~/.hqdata/tushare` snapshot for v0.1.1:
+Calibrated against the `~/.hqdata/tushare` snapshot:
     * 000008.SZ is suspended over 20260707..20260713 (7 trading days).
     * Universe containing 000008.SZ must let the engine run, with the
       suspension recorded via task-14's `DATA_WARNING` (fallback close

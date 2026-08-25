@@ -1,4 +1,4 @@
-"""End-to-end tests for task 8 (rule set + cost model integration)."""
+"""End-to-end tests for the rule set + cost model integration."""
 
 from dataclasses import dataclass
 from decimal import Decimal

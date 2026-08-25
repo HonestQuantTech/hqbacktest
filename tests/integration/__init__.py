@@ -1,4 +1,4 @@
-"""Task 21: real-data integration smoke tests for v0.1.1.
+"""Real-data integration smoke tests.
 
 These tests run against the local `~/.hqdata/tushare` snapshot only when
 that directory exists AND contains the calendar.csv + a non-empty
@@ -12,7 +12,7 @@ Calibration snapshot: `~/.hqdata/tushare`, 2026-01-05 .. 2026-07-31
 local snapshot changes.
 
 The four scenarios cover the v0.1 findings that previously broke
-real-data runs (per TODO.md 21):
+real-data runs:
 
     1. buy_and_hold across 600000.SH's 2026-07-16 dividend ex-date:
        factor jumps 16.5935 -> 17.3774 (~4.7%), factor diagnostics

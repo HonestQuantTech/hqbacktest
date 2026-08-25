@@ -1,4 +1,4 @@
-"""Task 17: equity curve / metrics baseline regression tests.
+"""Equity curve / metrics baseline regression tests.
 
 Covers:
     * First-day P&L flows into `daily_return` (no longer hard-coded 0).
@@ -139,8 +139,8 @@ def test_first_day_loss_appears_in_drawdown():
     # at day-2 close = 11500 * 8.2 = 77900. drawdown ~= (100000 - 72876) /
     # 100000 ≈ 0.27 once fees are subtracted; but max_drawdown uses the
     # equity curve which is initial_cash (no holding) -> -0.18 the day
-    # the position marks. We just assert drawdown > 0 (was 0 before
-    # task 17).
+    # the position marks. We just assert drawdown > 0 (used to be 0
+    # before first-day P&L flowed into the series).
     assert result.metrics.max_drawdown > Decimal("0.17")
     assert result.metrics.max_drawdown < Decimal("0.20")
 
@@ -219,8 +219,8 @@ def test_single_day_volatility_is_none():
 
 
 def test_two_day_volatility_uses_both_daily_returns():
-    """Task 23: a 2-day equity curve with two distinct daily returns
-    must produce a non-`None` `daily_volatility`.
+    """A 2-day equity curve with two distinct daily returns must
+    produce a non-`None` `daily_volatility`.
 
     Hand-calculated scenario:
         Day 1: total_equity = 91000 (down 9% from 100000)
@@ -228,19 +228,19 @@ def test_two_day_volatility_uses_both_daily_returns():
         Day 2: total_equity = 96005 (up 5.5% from 91000)
                -> daily_return = +0.055
 
-    Pre-fix: `_daily_returns` re-derived the series from
+    Earlier: `_daily_returns` re-derived the series from
     `total_equity`, with `[Decimal("0")]` as the day-0 seed, so the
     day-1 return was silently dropped. With only one return in
     `returns[1:]` stdev failed -> `daily_volatility is None`.
 
-    Post-fix: `compute_metrics` reads `EquityPoint.daily_return`
-    directly, so both samples reach the stdev call:
+    `compute_metrics` now reads `EquityPoint.daily_return` directly,
+    so both samples reach the stdev call:
         stdev([-0.09, 0.055], ddof=1) = sqrt(((−0.0725)² + 0.0725²) / 1)
                                     = sqrt(0.0105125)
                                     ≈ 0.102531...
 
     The contract: `daily_volatility` MUST see first-day P&L the same
-    way `max_drawdown` does (task 17 already wired that side).
+    way `max_drawdown` does.
     """
     eq = [
         EquityPoint(
@@ -376,8 +376,8 @@ def test_drawdown_peak_includes_initial_cash_on_continued_drop():
     Scenario: BUY 9500 @ 10 at day-1 open, close 9.1 -> equity 91426.25
     (drawdown ~8.57%). Day-2 close 8.9 -> equity 89526.25. The correct
     day-2 drawdown is (100000 - 89526.25) / 100000 = 10.47%, NOT
-    (91426.25 - 89526.25) / 91426.25 = 2.08% — the peak must be
-    `initial_cash` (task 17: "回撤峰值序列以 initial_cash 为初始峰值").
+    (91426.25 - 89526.25) / 91426.25 = 2.08% — the peak must include
+    `initial_cash` so a first-day loss is never silently lost.
     """
 
     class BuyAtOpen(BaseStrategy):

@@ -33,9 +33,9 @@ def test_validate_yyyymmdd_rejects_bad(value):
 @pytest.mark.parametrize(
     "value",
     [
-        # Task 22.3: 8-digit but NOT a real calendar date (e.g. month 13,
-        # day 32, day 30 of February). Previously these slipped through
-        # because the validator only checked `len == 8 and isdigit()`.
+        # 8-digit but NOT a real calendar date (e.g. month 13, day 32,
+        # day 30 of February). These slip through a bare
+        # `len == 8 and isdigit()` check.
         "20241399",  # month 13
         "20240132",  # January 32nd
         "20240230",  # Feb 30 in a non-leap year
@@ -44,9 +44,9 @@ def test_validate_yyyymmdd_rejects_bad(value):
     ],
 )
 def test_validate_yyyymmdd_rejects_impossible_calendar_dates(value):
-    """Task 22.3: 8-digit strings that are NOT real calendar dates
-    must be rejected by `validate_yyyymmdd` itself, not by an
-    unrelated check downstream.
+    """8-digit strings that are NOT real calendar dates must be
+    rejected by `validate_yyyymmdd` itself, not by an unrelated check
+    downstream.
     """
     with pytest.raises(InvalidDataError, match="calendar"):
         validate_yyyymmdd(value)
@@ -73,7 +73,7 @@ def test_validate_yyyymmdd_accepts_first_day_sentinel():
     ],
 )
 def test_validate_yyyymmdd_accepts_real_calendar_dates(value):
-    """Task 22.3: real-but-edge-case calendar dates must still pass."""
+    """Real-but-edge-case calendar dates must still pass."""
     assert validate_yyyymmdd(value) == value
 
 

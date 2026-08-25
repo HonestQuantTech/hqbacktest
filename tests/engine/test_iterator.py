@@ -25,8 +25,8 @@ def test_iterator_respects_window():
 
 
 def test_iterator_raises_when_window_has_no_open_days():
-    """Task 20: an empty trading-day window is a hard error, not a
-    silent success. This avoids the "no signals" misreport bug.
+    """An empty trading-day window is a hard error, not a silent
+    success. This avoids the "no signals" misreport bug.
     """
     p = _portal_with(["20240102"])
     with pytest.raises(ConfigurationError, match="no trading days"):

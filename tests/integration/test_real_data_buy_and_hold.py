@@ -1,6 +1,6 @@
 """Integration scenario 1: buy_and_hold across the 2026-07-16 dividend.
 
-Calibrated against the `~/.hqdata/tushare` snapshot for v0.1.1:
+Calibrated against the `~/.hqdata/tushare` snapshot:
     * 600000.SH factor jumps 16.5935 -> 17.3774 (~4.7%) on 20260716.
     * Buy-and-hold from 20260105 to 20260731 with 95% sizing must
       produce at least one DATA_WARNING factor diagnostic.

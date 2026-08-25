@@ -1,4 +1,4 @@
-"""Buy-and-hold example (task 11).
+"""Buy-and-hold example.
 
 Run from the project root with::
 

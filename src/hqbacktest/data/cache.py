@@ -2,8 +2,8 @@
 
 The cache key is the full call identity (source + symbol + field + start + end)
 so two different sources never share entries, matching contract §6 rule 2
-("one source per run") and the cache rule from task 4 ("缓存必须包含数据源、
-标的、字段和日期范围，不能混用不同数据源").
+("one source per run") and the cache rule ("缓存必须包含数据源、标的、
+字段和日期范围，不能混用不同数据源").
 """
 
 from dataclasses import dataclass
@@ -16,8 +16,8 @@ class CacheKey:
 
     `data_root` is the normalized (resolved, expanded) root directory; including
     it in the key guarantees that two portals pointing at different snapshot
-    directories never share cached values (task 4: "缓存键必须包含…规范化后
-    的 data_root").
+    directories never share cached values ("缓存键必须包含…规范化后的
+    data_root").
     """
 
     data_root: str

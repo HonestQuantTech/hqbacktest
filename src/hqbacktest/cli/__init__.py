@@ -1,4 +1,4 @@
-"""Command-line interface for hqbacktest (task 12).
+"""Command-line interface for hqbacktest.
 
 The CLI is intentionally tiny: it loads a TOML config file, validates it,
 constructs a `BacktestConfig` and a strategy class, runs the backtest, and

@@ -1,4 +1,4 @@
-"""Task 19: factor-diagnostics-on-holding + CLI summary tests.
+"""Factor-diagnostics-on-holding + CLI summary tests.
 
 Covers:
     * Holding through an ex-date with a > 0.1% factor jump emits a

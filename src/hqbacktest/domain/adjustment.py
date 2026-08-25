@@ -1,9 +1,9 @@
 """CorporateActionAdjustment: v0.1 placeholder.
 
-With AdjustmentPolicy=none in v0.1, this dataclass exists to keep the call site
-typed and reserved for the future `CorporateActionProvider` (task 9+). All
-adjustments produced in v0.1 are no-ops and must NOT modify cash, holdings,
-sellable quantity, cost basis or equity (contract §6 rule 8).
+With AdjustmentPolicy=none in v0.1, this dataclass exists to keep the
+call site typed and reserved for the future `CorporateActionProvider`.
+All adjustments produced in v0.1 are no-ops and must NOT modify cash,
+holdings, sellable quantity, cost basis or equity (contract §6 rule 8).
 """
 
 from dataclasses import dataclass

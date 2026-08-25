@@ -26,12 +26,10 @@ SENTINEL_NO_HISTORY = "00000000"
 def validate_yyyymmdd(value: object, *, name: str = "date") -> str:
     """Return the value if it is a valid YYYYMMDD string, else raise.
 
-    Task 22.3: rejects 8-digit strings that are NOT real calendar
-    dates (e.g. ``"20241399"`` month 13, ``"20240230"`` Feb 30 in a
-    non-leap year). Previously the validator only checked
-    ``len == 8 and isdigit()`` so impossible dates silently slipped
-    through and were only caught downstream — sometimes by an
-    unrelated check that masked the real defect.
+    Rejects 8-digit strings that are NOT real calendar dates (e.g.
+    ``"20241399"`` month 13, ``"20240230"`` Feb 30 in a non-leap
+    year). A bare `len == 8 and isdigit()` check would silently accept
+    these impossible values and let them reach the engine.
 
     The sentinel ``"00000000"`` is explicitly accepted (see
     `SENTINEL_NO_HISTORY`) because it is a legal engine-internal value

@@ -176,7 +176,7 @@ class InMemoryDataPortal(MarketDataPortal):
             # Match the production CSV portal: a missing whole-day stock-list
             # snapshot is an infrastructure failure (SnapshotFileMissingError),
             # not a per-symbol gap. This keeps the two portals' exception
-            # types identical for the same fixture (task 14 parity).
+            # types identical for the same fixture.
             raise SnapshotFileMissingError(
                 "stock_list", f"<memory>/stock_list/{date}.csv"
             )
@@ -188,10 +188,10 @@ class InMemoryDataPortal(MarketDataPortal):
     def get_bars(self, symbol: str, start: str, end: str) -> List[Bar]:
         """Return bars in [start, end], allowing per-day gaps.
 
-        An empty result (the symbol did not trade at all in the window, or
-        the window has no trading days) is returned as `[]` rather than
-        raising. This matches the production `HqDataCsvPortal` semantics
-        introduced in task 14.
+        An empty result (the symbol did not trade at all in the window,
+        or the window has no trading days) is returned as `[]` rather
+        than raising. This matches the production `HqDataCsvPortal`
+        semantics.
         """
         bars = self._bars_in_window(symbol, start, end)
         return list(bars)

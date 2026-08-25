@@ -1,4 +1,4 @@
-"""Config file loading and validation (task 12).
+"""Config file loading and validation.
 
 The TOML schema (one example):
 
@@ -237,8 +237,8 @@ def _require_decimal(
     value = section[key]
     if isinstance(value, bool):
         raise ConfigError(f"[{section_name}].{key} must be a number, not bool")
-    # Task 16: float is forbidden at the CLI layer too, matching the
-    # engine's contract rule 5. Without this check a TOML like
+    # Float is forbidden at the CLI layer too, matching the engine's
+    # contract rule 5. Without this check a TOML like
     # `initial_cash = 100000.0` would silently convert to a Decimal via
     # `Decimal(str(float))`, masking the precision concern.
     if isinstance(value, float):
@@ -259,11 +259,10 @@ def _require_decimal(
         raise ConfigError(
             f"[{section_name}].{key} must be a number, got {type(value).__name__}"
         )
-    # Task 20: NaN / +Inf / -Inf are technically parseable by
-    # `Decimal(str('nan'))` but break every downstream comparison
-    # (e.g. `nan < 0` raises InvalidOperation). Reject them here
-    # so the user gets a clean single-line ConfigError instead of
-    # a traceback.
+    # NaN / +Inf / -Inf are technically parseable by `Decimal(str('nan'))`
+    # but break every downstream comparison (e.g. `nan < 0` raises
+    # InvalidOperation). Reject them here so the user gets a clean
+    # single-line ConfigError instead of a traceback.
     if not d.is_finite():
         raise ConfigError(
             f"[{section_name}].{key}={d} must be a finite number "

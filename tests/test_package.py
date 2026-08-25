@@ -25,14 +25,12 @@ def test_version_matches_pyproject():
     `pyproject.toml`, AND both must look like a real release version
     (not e.g. an empty placeholder or a string with stray whitespace).
 
-    Task 22 / 23 review (2026-08-25): the prior version-sync guard
-    was `test_version_is_non_empty_string`, which only asserted that
-    `__version__` was a non-empty string. The docstring claimed it
-    matched `pyproject.toml` but the body never actually compared
-    the two — that gap allowed `src/hqbacktest/__init__.py::__version__`
-    to stay at `0.1.1` for two release cycles (v0.1.2, v0.1.3) even
-    after `pyproject.toml` advanced, which would have made every
-    `run_metadata.json` record the wrong engine version.
+    Earlier this was just `test_version_is_non_empty_string`, which
+    only asserted that `__version__` was a non-empty string. Its
+    docstring claimed it matched `pyproject.toml` but the body never
+    compared the two — that gap let `src/hqbacktest/__init__.py`
+    drift from `pyproject.toml` and made every `run_metadata.json`
+    record a stale engine version.
 
     This test parses `[project].version` from the in-repo
     `pyproject.toml` and asserts byte equality with the package
@@ -86,7 +84,7 @@ def test_version_matches_pyproject():
 
 
 def test_public_api_includes_domain_models():
-    """After task 9, the package re-exports domain, data and engine layers."""
+    """The package re-exports domain, data, and engine layers."""
     import hqbacktest
 
     expected = {

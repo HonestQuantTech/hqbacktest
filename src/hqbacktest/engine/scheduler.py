@@ -3,8 +3,9 @@
 The scheduler owns the visible_through settings per phase (contract §4) and
 fires the strategy callbacks in the exact order required by the contract.
 Open matching, fill recording and snapshot building are intentionally out of
-scope (task 5 "不实现订单实际成交"); the scheduler records the phase
-transitions in the event log so tests can assert the exact sequence.
+scope here — see `SimulatedBroker` for the matching pipeline; the scheduler
+records the phase transitions in the event log so tests can assert the
+exact sequence.
 
 `initialize` is NOT fired here: it is a run-level lifecycle callback invoked
 exactly once by `BacktestEngine.run()` before the first trading day
@@ -28,7 +29,7 @@ from .strategy import Strategy
 
 # Callback the engine plugs in to consume pending orders at OPEN_MATCH.
 # `context` is passed so the engine can drain out-of-universe rejections
-# alongside regular pending orders (task 18).
+# alongside regular pending orders.
 OpenMatchCallback = Callable[[str, List[Order], "Context"], None]
 
 
@@ -80,8 +81,8 @@ def build_view(
     `universe_start` is deliberately left unset here: it denotes the earliest
     date the strategy may query (a run-level bound derived from the backtest
     window), not the phase visibility. Bounding `history(bar_count=N)`'s
-    lookback window is `DataView`'s own responsibility (task 14), independent
-    of per-phase visibility.
+    lookback window is `DataView`'s own responsibility, independent of
+    per-phase visibility.
     """
     if schedule.visible_through_mode == SAME_DAY_VISIBLE_THROUGH:
         return DataView(portal=portal, visible_through=today)
@@ -109,10 +110,10 @@ def run_day(
 ) -> None:
     """Fire the five phases for one trading day, in order.
 
-    `on_open_match` (task 7) is invoked at the OPEN_MATCH phase with the
-    pending orders accumulated by `Context.order_*`. The callback is
-    expected to apply fills to the portfolio and to mark rejected orders.
-    When `on_open_match` is `None`, OPEN_MATCH is a no-op (pre-task 7).
+    `on_open_match` is invoked at the OPEN_MATCH phase with the pending
+    orders accumulated by `Context.order_*`. The callback is expected to
+    apply fills to the portfolio and to mark rejected orders. When
+    `on_open_match` is `None`, OPEN_MATCH is a no-op (no matcher wired in).
     """
     context._set_date(today)
     for entry in PHASE_SCHEDULE:
@@ -142,12 +143,12 @@ def run_day(
                 # Only consume when a matcher is wired in; otherwise pending
                 # orders would silently vanish without any event.
                 pending = context._consume_pending_orders()
-                # Task 18: invoke the matcher whenever there is anything to
-                # process — pending orders OR out-of-universe rejections to
-                # fold into the audit table. The engine drains both in a
-                # single call; do NOT pre-consume the out-of-universe list
-                # here (the engine must consume it, or those rejections
-                # would be silently dropped from the orders table).
+                # Invoke the matcher whenever there is anything to process —
+                # pending orders OR out-of-universe rejections to fold into
+                # the audit table. The engine drains both in a single call;
+                # do NOT pre-consume the out-of-universe list here (the
+                # engine must consume it, or those rejections would be
+                # silently dropped from the orders table).
                 if pending or context._has_out_of_universe_orders():
                     on_open_match(today, pending, context)
             continue
