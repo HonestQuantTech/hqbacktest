@@ -47,8 +47,8 @@ backward-compatible unless called out below.
   `@dataclass(frozen=True)` with `fill_ids: tuple[str, ...]`; strategies
   cannot mutate Order objects returned from `Context.pending_orders()`.
   `DataView.portal` is now a private `_portal` field; strategies cannot
-  bypass `visible_through`. `set_universe(...)` enforces trading scope;
-  orders outside the universe are rejected with
+  reach it to read future data. `set_universe(...)` enforces trading
+  scope; orders outside the universe are rejected with
   `RejectReason.OUT_OF_UNIVERSE`. New `Context.historical_universe()`
   returns the historical stock list through the guarded data view.
 - **Factor diagnostics on holdings (task 19):** the engine runs

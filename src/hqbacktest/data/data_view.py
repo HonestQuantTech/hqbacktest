@@ -57,10 +57,11 @@ class DataView:
     `visible_through="00000000"` is a legal sentinel that exposes no data:
     `history(...)` returns `[]` and `current_price(...)` returns `None`.
 
-    Task 18: the `portal` attribute is **private** (name-mangled to
-    `_portal`). Strategies cannot reach the raw `MarketDataPortal` and
-    bypass `visible_through` via `view.portal.get_bars(...)`. All
-    data-layer access goes through the guarded methods on this view.
+    Task 18: the `portal` attribute is **private** (renamed to
+    `_portal` as a leading-underscore convention). Strategies cannot
+    reach the raw `MarketDataPortal` and therefore cannot read future
+    data via `view.portal.get_bars(...)`. All data-layer access goes
+    through the guarded methods on this view.
     The constructor still accepts `portal=...` (kwarg) so existing
     call sites don't break, but the value is stored only on the
     private field and is never re-exposed.
@@ -102,7 +103,7 @@ class DataView:
                 raise FutureDataAccessError(self.universe_start, self.visible_through)
 
     def _guard(self, requested: str) -> None:
-        """Reject queries that escape the visibility window.
+        """Reject queries that ask for dates outside the visibility window.
 
         `00000000` is always considered to lie outside the visible window
         because the portal never indexes dates earlier than its first

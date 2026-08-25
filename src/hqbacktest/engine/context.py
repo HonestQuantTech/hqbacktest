@@ -10,7 +10,8 @@ Task 6 adds the full surface required by `BaseStrategy`:
 
 The Context never mutates the ledger directly. `Portfolio.apply_fill` is
 the single writer (task 7); here we only append `Order` objects to
-`pending_orders`. Strategy code therefore cannot bypass the broker.
+`pending_orders`. Strategy code therefore cannot reach the broker
+directly — every order path funnels through the engine.
 
 Isolation rules enforced here (contract §4 and task 6 goals):
     * Date / phase / data view are engine-owned: they can only be changed
@@ -22,6 +23,9 @@ Isolation rules enforced here (contract §4 and task 6 goals):
       `BAR_CLOSE` (contract §4 "可下单" column).
     * `set_universe` may only be called from `initialize`; the universe is
       locked once `initialize` returns (contract §4 配套约束).
+    * All order paths funnel through `_create_order`, so the order-type
+      allow-list and symbol validation cannot be skipped by the
+      convenience helpers.
 """
 
 from dataclasses import replace
@@ -220,7 +224,7 @@ class Context:
 
         Task 18: this is the only universe accessor that reads through
         the data portal. It is constrained by `visible_through` and
-        must not be used to bypass the data view. When no `DataView`
+        must not be used to read future data. When no `DataView`
         is published (e.g. in `initialize`), an empty list is returned.
         """
         self._require_active("historical_universe")
@@ -495,7 +499,7 @@ class Context:
         order_type: OrderType = OrderType.MARKET,
     ) -> Optional[Order]:
         # Contract rule 7: every order path funnels through here, so the
-        # order-type allow-list and symbol validation cannot be bypassed by
+        # order-type allow-list and symbol validation cannot be skipped by
         # the convenience helpers.
         if not isinstance(order_type, OrderType):
             raise UnsupportedOrderTypeError(

@@ -7,7 +7,7 @@ Covers:
       original quantity, audit log still records the original
       `avg_fill_price` and `fill_ids`).
     * `DataView.portal` is no longer publicly accessible (the
-      strategy cannot bypass `visible_through` by calling
+      strategy cannot read future data by calling
       `view.portal.get_bars(sym, start, future_date)`).
     * `set_universe(...)` actually constrains trading: orders against
       a symbol outside the declared universe are rejected with a
@@ -116,7 +116,7 @@ def test_pending_orders_returns_frozen_order_copies():
     engine = BacktestEngine(_cfg(), strategy=TryToTamper(), portal=_two_symbol_portal())
     engine.run()
     # The order for 100 shares of 600000.SH on day 1 must have filled at
-    # exactly 100, NOT the tampered 9999.
+    # exactly 100, NOT the inflated 9999.
     fills = [e for e in engine.event_log.all() if e.phase is EventType.ORDER_FILLED]
     assert any(
         "qty=100" in (e.detail or "") for e in fills
@@ -131,7 +131,7 @@ def test_pending_orders_returns_frozen_order_copies():
 
 def test_data_view_portal_is_not_publicly_accessible():
     """The portal attribute must not be reachable from outside the
-    data layer. Strategies must not bypass `visible_through` by
+    data layer. Strategies must not read future data by
     reading `view.portal.get_bars(sym, start, future_date)`.
     """
     p = InMemoryDataPortal(
@@ -271,8 +271,8 @@ def test_order_fill_ids_is_immutable():
     a frozen Order cannot append/clear it in place (task 18).
 
     A frozen dataclass only blocks attribute *reassignment*; a `list`
-    field would still be mutable in place. Switching to `tuple` closes
-    that last escape hatch.
+    field would still be mutable in place. Switching to `tuple` removes
+    the last in-place mutation path.
     """
     from hqbacktest.domain.order import Order
 

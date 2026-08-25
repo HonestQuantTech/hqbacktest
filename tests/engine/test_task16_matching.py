@@ -5,8 +5,8 @@ Covers:
       orders ("卖旧买新" rotation).
     * SELL orders are not lot-rounded: odd-lot SELLs (含零股) succeed and
       can fully flatten a position via `order_target(symbol, 0)`.
-    * SELL 150 must NOT be silently shrunk to 100 (静默篡改策略意图
-      violates the contract).
+    * SELL 150 must NOT be silently shrunk to 100 (silently altering
+      the strategy's intent violates the contract).
     * Same-day BUY-then-SELL vs SELL-then-BUY at the same price produce
       the same realized_pnl for the SELL position (fee differences are
       not realized_pnl).

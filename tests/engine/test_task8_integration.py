@@ -238,7 +238,7 @@ def test_engine_rejects_buy_with_lot_size_violation_via_rule_set():
             context.set_universe(["600000.SH"])
 
         def on_bar(self, context, data):
-            # `Context.order` already rounds, so bypass via a raw Order.
+            # `Context.order` already rounds, so verify with a raw Order.
             from hqbacktest.domain.order import Order
 
             order = Order(
