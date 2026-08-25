@@ -26,7 +26,9 @@ from .strategy import Strategy
 
 
 # Callback the engine plugs in to consume pending orders at OPEN_MATCH.
-OpenMatchCallback = Callable[[str, List[Order]], None]
+# `context` is passed so the engine can drain out-of-universe rejections
+# alongside regular pending orders (task 18).
+OpenMatchCallback = Callable[[str, List[Order], "Context"], None]
 
 
 # Each phase's `visible_through` rule (contract §4). A value of `None` means
@@ -77,20 +79,27 @@ def build_view(
     schedule: PhaseSchedule,
     today: str,
 ) -> DataView:
-    """Construct a `DataView` whose `visible_through` matches the phase rule."""
+    """Construct a `DataView` whose `visible_through` matches the phase rule.
+
+    `universe_start` is deliberately left unset here: it denotes the earliest
+    date the strategy may query (a run-level bound derived from the backtest
+    window), not the phase visibility. Bounding `history(bar_count=N)`'s
+    lookback window is `DataView`'s own responsibility (task 14), independent
+    of per-phase visibility.
+    """
     if schedule.visible_through_mode == SAME_DAY_VISIBLE_THROUGH:
-        visible_through = today
-    elif schedule.visible_through_mode == PRE_BAR_VISIBLE_THROUGH:
+        return DataView(portal=portal, visible_through=today)
+    if schedule.visible_through_mode == PRE_BAR_VISIBLE_THROUGH:
         prev = previous_trading_day(portal, today)
-        # On the first trading day no history exists yet; the sentinel keeps
-        # the view legal but restricts reads to dates < today, so the
-        # strategy simply sees no bars.
-        visible_through = prev if prev is not None else NO_HISTORY_VISIBLE_THROUGH
-    else:  # pragma: no cover - defensive
-        raise ValueError(
-            f"unknown visible_through mode: {schedule.visible_through_mode}"
-        )
-    return DataView(portal=portal, visible_through=visible_through)
+        if prev is None:
+            # First trading day: no history exists yet. The sentinel keeps
+            # the view legal but exposes no data.
+            return DataView(
+                portal=portal,
+                visible_through=NO_HISTORY_VISIBLE_THROUGH,
+            )
+        return DataView(portal=portal, visible_through=prev)
+    raise ValueError(f"unknown visible_through mode: {schedule.visible_through_mode}")
 
 
 def run_day(
@@ -137,8 +146,14 @@ def run_day(
                 # Only consume when a matcher is wired in; otherwise pending
                 # orders would silently vanish without any event.
                 pending = context._consume_pending_orders()
-                if pending:
-                    on_open_match(today, pending)
+                # Task 18: invoke the matcher whenever there is anything to
+                # process — pending orders OR out-of-universe rejections to
+                # fold into the audit table. The engine drains both in a
+                # single call; do NOT pre-consume the out-of-universe list
+                # here (the engine must consume it, or those rejections
+                # would be silently dropped from the orders table).
+                if pending or context._has_out_of_universe_orders():
+                    on_open_match(today, pending, context)
             continue
         elif entry.phase is EventType.BAR_CLOSE:
             strategy.on_bar(context, view)

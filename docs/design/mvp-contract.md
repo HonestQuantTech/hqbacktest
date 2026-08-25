@@ -138,6 +138,81 @@
 - `data portal` 通过 `data_root` 与 `source` 解析数据集根目录。v0.1 的固定布局为 `{root}/{source}/calendar.csv`，以及 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv`、`stock_factor/{YYYYMMDD}.csv`；任何缺失、不可读或格式不符的文件必须报错，不得联网回补。
 - hqdata CSV 快照是叶子数据边界；更新数据只能在回测运行前通过 hqdata CLI 完成。
 
+### 3.3 数据可见性与缺行语义（任务 14 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| `get_bars(symbol, start, end)` | 返回窗口内实际存在的行，**允许逐日间隙**；窗口内无任何行返回 `[]` 而非报错。 |
+| `get_bar(symbol, date)` 失败分类 | 个股当日缺行（停牌 / 未上市 / 已退市） → 返回「无当日行情」的空结果；**整日快照文件缺失** → `SnapshotFileMissingError`（`MissingDataError` 子类），引擎不得当作「该股无价」处理。 |
+| `current_price(symbol)` | 返回截至 `visible_through` 的最近一个有效收盘价，**回看上限 20 个交易日**，超出返回 `None`；停牌持仓按最近收盘估值并记录 `DATA_WARNING` 事件，禁止静默按 0 计入。 |
+| 首个交易日盘前（`visible_through="00000000"`） | `history` 返回 `[]`、`current_price` 返回 `None`，**不抛异常**。 |
+| `get_universe(date)` | **按精确日期查询**，不做向前回退；`.BJ`（北交所）股票默认过滤，可通过 `include_bj=True` 保留。 |
+| `Bar.volume` 单位 | **手**（1 手 = 100 股；与 Tushare `hqdata` 适配器口径一致）；调用方需要股数时应乘以 `LOT_SIZE`。 |
+| 双门户一致性 | `InMemoryDataPortal` 与 `HqDataCsvPortal` 行为完全一致（parity 测试覆盖）。 |
+
+### 3.4 撮合与账本口径（任务 16 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| 同日撮合顺序 | 单个 `OPEN_MATCH(today)` batch 内**所有 SELL 先撮合、再撮合 BUY**（A 股「卖出资金当日可用」），同侧内保持策略提交顺序；`broker.match` 按此顺序返回结果以保证 `running_cash` 滚动检查生效。 |
+| 资金检查 | `InsufficientCashRule` 检查**滚动现金**（running_cash）：SELL 净回款增加、BUY 成本扣除，拒绝后不滚动。 |
+| 整手取整 | **仅 BUY** 按 100 股整手向下取整；SELL 允许任意正整数股（含零股），静默截到整手违反契约。 |
+| `order_target(symbol, 0)` | 必须能清仓含零股的持仓；`order(sym, -N)` 对任意正整数 N 提交原数量。 |
+| T+1 可卖不足 | **整单拒绝**（`RejectReason.INSUFFICIENT_SHARES`），不支持部分截断。 |
+| `realized_pnl` | **不含任何费用**（commission / stamp_tax / other_fee），仅 `(sell_price - avg_cost) × quantity`；费用只走现金账。 |
+| 金额量化 | 全部使用 `ROUND_HALF_EVEN`（`quantize_cash` 0.01 元 / `quantize_price` 0.0001 元），与券商「四舍五入到分」存在 1 分级差异。 |
+| 同日同价「先买后卖」与「先卖后买」 | 提交顺序决定成交时点；`realized_pnl` 在费用外对相同 `(price, avg_cost, quantity)` 相同，**不含费用的现金额**依提交顺序而不同。 |
+| BUY 成交 `stamp_tax` | 必须为 0（印花税仅在 SELL 收取），`Fill.__post_init__` 校验拒绝非零。 |
+| `target_quantity_for_value(0)` | 返回 `0`（flatten），与 docstring 一致。 |
+| CLI `initial_cash` | 拒绝 `float`（TOML 字面 `100000.0` 报错），与引擎层 `BacktestConfig` 严格度对齐。 |
+
+### 3.5 净值与绩效指标口径（任务 17 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| 首日 `daily_return` | `total_equity[0] / initial_cash - 1`（**不再硬编码 0**），首日 P&L 进入收益序列。 |
+| 首日 `drawdown` | `(initial_cash - total_equity[0]) / initial_cash`（首日下跌时为正；不再硬编码 0），后续日 running peak = `max(initial_cash, 历史 total_equity)`，首日跌幅进入回撤峰值序列。 |
+| 恒等式 | `∏(1 + daily_return) == 1 + total_return`（Decimal 精度内）。 |
+| 波动率样本不足 | `< 2` 个日收益时 `daily_volatility` / `annualized_volatility` / `sharpe_ratio` 返回 `None` + note（**禁止错报 0**）；真正 0 波动率才返回 `Decimal('0')`。 |
+| `annualized_return` 幂运算 | `float(growth) ** float(exponent)` 通过 `Decimal(str(...))` 重建为 Decimal，**禁止 `Decimal(float(...))`**。 |
+| Decimal 量化 | 所有 `float` 桥接的 Decimal 输出统一 quantize 到 `Decimal('0.000000000001')`，保证 `summary.json` 干净。 |
+| `positions.sellable_quantity` | **结转后**（D 行快照为 D+1 起始时可卖数）；engine 在 `_snapshot_equity` 前调用 `settle_t1`，D 行的 `sellable_quantity` 即已包含当日成交的滚动。 |
+
+### 3.6 策略隔离与审计完整性（任务 18 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| `Order` 不可变 | `@dataclass(frozen=True)`，`fill_ids: tuple[str, ...]`；策略收到 `pending_orders()` 后无法修改任何字段（quantity / avg_fill_price / fill_ids 等）；`transition` / `record_fill` 用 `object.__setattr__` 绕过冻结，仅 engine / broker 可调用。 |
+| `DataView.portal` 私有 | 字段名 `_portal`（私有），**策略无法**通过 `view.portal.get_bars(sym, future_date)` 绕过 `visible_through`；所有数据访问走 `view.history` / `view.current_price` / `view.universe`。 |
+| Universe 生效 | `set_universe(...)` 后，对未声明的符号下单立即拒绝（`RejectReason.OUT_OF_UNIVERSE`，含 ORDER_CREATED + ORDER_REJECTED 事件，Order 不经过 broker、停留在 `_out_of_universe_orders` 并在 result 构造时折入 `orders_table`）；**未设 universe 时不限制**。 |
+| 历史股票池 | `Context.historical_universe()` 返回 `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束；不暴露 raw portal。 |
+| 返回值防御性 | `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用（任务 15）。 |
+
+### 3.7 因子诊断接入与分红偏差显性化（任务 19 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| 启用条件 | `adjustment_policy=none`（v0.1 唯一接受值）；引擎对**当前持仓**（quantity > 0）标的的因子跳变自动诊断，清仓后停止（持有期结束）。 |
+| 跳变阈值 | **0.1%**（holdings-period 阈值，`jump_band=(0.999, 1.001)`）；`analyze_factor_series` 默认 `(0.5, 2.0)` 用于一般因子质量诊断，holdings-period 用更严阈值。 |
+| 数据来源 | `portal.get_factor(symbol, today, today)`；快照缺失 / 无因子静默跳过（不影响 run），仅在**当前持仓**且超出阈值时产出警告。 |
+| 写入位置 | `EngineEvent` 阶段 `DATA_WARNING`（detail 包含前后因子值与 ratio）；`FactorDiagnosticCollector` → `BacktestResult.factor_diagnostics` → `summary.json` 的 `factor_diagnostics` 字段。 |
+| 账本影响 | **零**：诊断是只读观测，绝不修改 cash / position / equity；baseline 与诊断版的逐字节相同（byte-identical ledger）。 |
+| CLI 警告 | `run_from_config` 末尾若 `result.factor_diagnostics` 非空，打印一行 `warning: N corporate-action factor jumps detected during holding periods; NAV excludes dividends (adjustment_policy=none), see summary.json`。 |
+| 文档承诺 | README 显著位置明示：`adjustment_policy=none` 下跨除权日的净值**系统性低估**（少分红现金），长区间结果不可用于收益评估，并链接因子诊断输出（`summary.json` / `events.jsonl`）。 |
+
+### 3.8 CLI 易用性与契约承诺一致性（任务 20 固化）
+
+| 维度 | v0.1 默认决定 |
+| --- | --- |
+| 策略模块解析 | `hqbacktest run` 把 config 文件所在目录和当前工作目录加入 `sys.path`（与 `python -m hqbacktest run` 行为一致），`[strategy].module = "my_strategy"` 这类不带点号的写法直接可 import。 |
+| `initial_cash` 校验 | 拒绝 `nan` / `+inf` / `-inf` / `float`；接受 `int` / `str` / `Decimal`；错误为单行 `ConfigError`（CLI exit 2）。 |
+| 日期校验 | `YYYYMMDD` 格式 + 真实日历；`20241399` 等非法日期立即拒。 |
+| 空交易窗口 | `[start, end]` 区间在 portal 日历上无交易日 → `ConfigurationError`，不得静默成功写出空结果。 |
+| 输出目录复用 | 已存在且非空的输出目录默认拒绝（CLI exit 3）；`--force` 可覆盖。 |
+| `order_value` 等下单函数 | 接受 `int` / `str` 金额（继续拒绝 `float`），降低策略样板代码。 |
+| `git_commit` 语义 | `run_metadata.json` 记录 **hqbacktest 自身** 的 git commit（engine 来源），不再记录用户 cwd 仓库 commit。 |
+| 文档一致性 | README「命令行」「错误信息」章节逐条与实现对齐；包布局含 `cli/` 子包；CLI 错误示例覆盖 exit 2/3/4 各档。 |
+
 ## 6. 不可变规则
 
 以下 13 条规则在 v0.1 期间**不允许任何代码绕过**；新增能力时若必须突破某条，必须先在本文档登记例外并同步 README。
@@ -187,3 +262,9 @@
 | 2026-08-17 | v0.1（已被后续修订取代） | 曾将 `source` 交给 `hqdata` 解析；该 API 驱动的数据边界已在 2026-08-23 被 CSV 快照契约取代 | hqbacktest 维护者 |
 | 2026-08-23 | v0.1 | 修正回测运行时数据边界：`hqbacktest` 直接只读 hqdata CLI 落盘 CSV；`data_root` 默认 `~/.hqdata`，不调用 `hqdata.api` 或网络数据源 | hqbacktest 维护者 |
 | 2026-08-23 | v0.1 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录污染 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 14 数据层缺行/停牌/首日语义：钉死 `get_bars` 允许间隙、引入 `SnapshotFileMissingError` 区分整日文件缺失与个股缺行、`current_price` 回看 20 交易日最近有效收盘价、首日哨兵日期不抛异常、删除 `InMemoryDataPortal.get_universe` 向前回退、补双门户 parity 测试、缓存返回防御性拷贝、`.BJ` 股票默认过滤、`Bar.volume` 单位标注为「手」 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 16 撮合与账本语义：同批撮合 SELL 先于 BUY（滚动现金）、SELL 不整手取整（`order_target(0)` 可清零股）、`Fill.BUY` 携带非零 stamp_tax 报错、`Order.record_fill` 移除不可达 `ACCEPTED` 分支、`intents.target_quantity_for_value(0)` 按 docstring 返回 0、CLI `initial_cash` 拒绝 float 与引擎对齐、`realized_pnl` 不含费用修正旧注释；登记 §3.4 撮合口径表 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 17 净值与指标基准：首日 `daily_return` / `drawdown` 以 `initial_cash` 为基准（不再硬编码 0）、后续日 running peak = `max(initial_cash, 历史 total_equity)`、波动率样本不足返回 `None` 而非 0、`Decimal(str(float(...)))` 替代 `Decimal(float(...))` 幂运算桥接、`positions.sellable_quantity` 口径登记为「结转后」；恒等式 `∏(1 + daily_return) = 1 + total_return` 成立；登记 §3.5 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 18 策略隔离与审计完整性：`Order` 改为 `frozen=True`（策略无法篡改 `pending_orders()` 返回的 Order）、`DataView.portal` 改为私有 `_portal`、universe 生效（`RejectReason.OUT_OF_UNIVERSE`）、`Context.historical_universe()` 转发 `DataView.universe()` 受可见性约束；登记 §3.6 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 19 因子诊断接入与分红偏差显性化：engine 在持仓/成交标的的因子跳变（阈值 0.1%）自动生成 DATA_WARNING + `FactorDiagnostic`，结果写入 `summary.json` / `events.jsonl`；CLI 末尾打印汇总警告；账本与净值完全不变；登记 §3.7 | hqbacktest 维护者 |
+| 2026-08-24 | v0.1 | 任务 20 CLI 易用性与文档真实性：console script 把 config dir + cwd 加入 sys.path（策略模块解析与 `python -m` 对齐）；`initial_cash` 拒绝 nan/inf/float；空交易窗口、空输出目录、`--force` 覆盖；`order_value` 接受 int/str；`git_commit` 改为 hqbacktest 自身版本；README 错误码表与包布局对齐；登记 §3.8 | hqbacktest 维护者 |

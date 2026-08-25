@@ -52,8 +52,10 @@ def test_signed_diff_to_lots_buy():
 
 
 def test_signed_diff_to_lots_sell():
-    # Need to go from 300 to 50; diff = -250, lot-rounded = -200.
-    assert signed_diff_to_lots(50, 300) == -200
+    # Need to go from 300 to 50; diff = -250. Task 16: SELL preserves
+    # the requested share count (odd-lot SELLs allowed per A-share rules),
+    # so the result is -250, not lot-rounded -200.
+    assert signed_diff_to_lots(50, 300) == -250
 
 
 def test_signed_diff_to_lots_no_change():
@@ -70,10 +72,12 @@ def test_target_quantity_for_value_positive():
     )
 
 
-def test_target_quantity_for_value_zero_returns_current():
+def test_target_quantity_for_value_zero_returns_zero_per_docstring():
+    # Task 16: per the function's docstring ("may be 0 to flatten"), a
+    # zero target returns 0 — the caller flattens via order_target().
     assert (
         target_quantity_for_value(Decimal("0"), Decimal("12.50"), current_quantity=300)
-        == 300
+        == 0
     )
 
 

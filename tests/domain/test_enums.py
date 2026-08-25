@@ -38,6 +38,7 @@ def test_reject_reason_is_closed_and_known():
         "MISSING_DATA",
         "DUPLICATE_ORDER",
         "BACKTEST_ENDED",
+        "OUT_OF_UNIVERSE",
         "OTHER",
     }
     assert {member.name for member in RejectReason} == expected

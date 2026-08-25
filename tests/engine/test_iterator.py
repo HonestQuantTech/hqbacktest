@@ -24,10 +24,13 @@ def test_iterator_respects_window():
     assert list(it) == ["20240103", "20240104"]
 
 
-def test_iterator_is_empty_when_window_has_no_open_days():
+def test_iterator_raises_when_window_has_no_open_days():
+    """Task 20: an empty trading-day window is a hard error, not a
+    silent success. This avoids the "no signals" misreport bug.
+    """
     p = _portal_with(["20240102"])
-    it = TradingDayIterator(p, "20240105", "20240110")
-    assert list(it) == []
+    with pytest.raises(ConfigurationError, match="no trading days"):
+        TradingDayIterator(p, "20240105", "20240110")
 
 
 def test_iterator_rejects_invalid_dates():
@@ -55,10 +58,6 @@ def test_iterator_len_and_is_empty():
     it = TradingDayIterator(p, "20240102", "20240103")
     assert len(it) == 2
     assert not it.is_empty()
-
-    empty = TradingDayIterator(p, "20240110", "20240115")
-    assert len(empty) == 0
-    assert empty.is_empty()
 
 
 def test_iterator_does_not_invent_natural_days():

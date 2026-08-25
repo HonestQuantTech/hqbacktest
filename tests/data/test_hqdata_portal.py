@@ -278,9 +278,11 @@ def test_calendar_rejects_invalid_is_open(tmp_path):
     snap = tmp_path / "tushare"
     snap.mkdir()
     (snap / "calendar.csv").write_text("date,is_open\n20240102,X\n", encoding="utf-8")
-    portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
+    # Per task 14, a corrupt calendar is an infrastructure failure: the
+    # portal surfaces it at construction time (via `_resolve_as_of`) so
+    # the engine can never publish a misleading `data_version`.
     with pytest.raises(InvalidDataError):
-        portal.get_calendar("20240101", "20240110")
+        HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
 
 
 # --------------------------------------------------------------------- #
@@ -463,11 +465,22 @@ def test_get_bars_caches(tmp_path):
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
     a = portal.get_bars("600000.SH", "20240102", "20240102")
     b = portal.get_bars("600000.SH", "20240102", "20240102")
-    assert a is b  # served from cache
+    # Task 14: cached lists are returned as defensive copies, never the
+    # internal reference. Strategies must not be able to mutate the
+    # cache by mutating a returned list.
+    assert a == b
+    assert a is not b
 
 
 def test_get_bars_rejects_missing_daily_file(tmp_path):
-    """A trading day without a daily file raises MissingDataError."""
+    """A trading day without a daily file raises SnapshotFileMissingError.
+
+    Per task 14, a missing whole-day file is an infrastructure failure
+    (distinct from a per-symbol gap) and must propagate so the engine can
+    abort the run with `DATA_ERROR`.
+    """
+    from hqbacktest.data import SnapshotFileMissingError
+
     _build_snapshot(
         tmp_path,
         "tushare",
@@ -480,9 +493,9 @@ def test_get_bars_rejects_missing_daily_file(tmp_path):
         factors={},
     )
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
-    with pytest.raises(MissingDataError) as exc:
+    with pytest.raises(SnapshotFileMissingError) as exc:
         portal.get_bars("600000.SH", "20240102", "20240103")
-    assert "no bars" in str(exc.value).lower()
+    assert "20240103" in str(exc.value)
 
 
 def test_get_bars_rejects_date_mismatch_in_daily(tmp_path):
@@ -500,6 +513,13 @@ def test_get_bars_rejects_date_mismatch_in_daily(tmp_path):
 
 
 def test_get_bars_rejects_wrong_symbol_row(tmp_path):
+    """A per-symbol gap returns `[]`, not an error (task 14).
+
+    The daily file exists for the trading day but contains no row for
+    the requested symbol (suspended / delisted / pre-IPO). This is a
+    per-symbol gap and is a normal business outcome, so the portal
+    returns an empty list rather than raising.
+    """
     snap = tmp_path / "tushare"
     snap.mkdir()
     (snap / "stock_daily").mkdir()
@@ -510,9 +530,7 @@ def test_get_bars_rejects_wrong_symbol_row(tmp_path):
     )
     _write_calendar(snap, [("20240102", "Y")])
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
-    with pytest.raises(MissingDataError):
-        # The file exists but has no row for 600000.SH.
-        portal.get_bars("600000.SH", "20240102", "20240102")
+    assert portal.get_bars("600000.SH", "20240102", "20240102") == []
 
 
 def test_get_bars_rejects_duplicate_symbol_rows(tmp_path):
@@ -527,7 +545,7 @@ def test_get_bars_rejects_duplicate_symbol_rows(tmp_path):
     )
     _write_calendar(snap, [("20240102", "Y")])
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
-    with pytest.raises(InvalidDataError, match="at most one row"):
+    with pytest.raises(InvalidDataError, match="duplicate row"):
         portal.get_bars("600000.SH", "20240102", "20240102")
 
 

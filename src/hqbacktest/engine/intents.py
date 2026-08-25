@@ -51,18 +51,24 @@ def side_from_quantity(quantity: int) -> Optional[Side]:
 
 
 def signed_diff_to_lots(target: int, current: int, lot_size: int = 100) -> int:
-    """Compute the signed delta between `target` and `current`, lot-aligned.
+    """Compute the signed delta between `target` and `current`.
 
-    Used by `order_target*` helpers: the resulting value is the share count
+    BUY deltas (target > current) are floored to the nearest lot (100
+    shares). SELL deltas (target < current) preserve the requested
+    share count exactly — A-share rules allow odd-lot SELLs so a
+    position holding a non-lot multiple can still be flattened. Used
+    by `order_target*` helpers: the resulting value is the share count
     to send through the broker (positive => BUY, negative => SELL).
     """
     diff = target - current
     if diff == 0:
         return 0
-    sign = 1 if diff > 0 else -1
-    abs_diff = abs(diff)
-    lots = abs_diff // lot_size  # floor; contract: lot-aligned BUY/SELL
-    return sign * lots * lot_size
+    if diff < 0:
+        # SELL: any positive integer is legal; do NOT lot-round.
+        return diff
+    # BUY: floor to nearest lot to avoid requesting fractional shares.
+    lots = diff // lot_size
+    return lots * lot_size
 
 
 def target_quantity_for_value(
@@ -70,7 +76,10 @@ def target_quantity_for_value(
 ) -> int:
     """Compute the desired `quantity` for a `target_value` position.
 
-    `target_value` may be `Decimal("0")` to flatten the position.
+    `target_value` may be `Decimal("0")` to flatten the position; in
+    that case the function returns `0` (the caller, e.g.
+    `Context.order_target_value`, will translate this into a full
+    flatten via `order_target(symbol, 0)`).
     """
     if price <= 0:
         raise StrategyLifecycleError(f"price must be positive, got {price}")
@@ -79,7 +88,7 @@ def target_quantity_for_value(
             f"target_value must be non-negative, got {target_value}"
         )
     if target_value == 0:
-        return current_quantity  # flat → no change
+        return 0  # flatten (per docstring)
     target_qty_signed = quantity_from_value(target_value, price, lot_size)
     # quantity_from_value already returns a lot-aligned signed count.
     # For a target_value (positive), the signed count is positive.

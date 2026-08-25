@@ -83,7 +83,7 @@ def test_record_full_fill_moves_to_filled():
     o.record_fill("F001", quantity=100, price=Decimal("10.50"), at="20240103")
     assert o.filled_quantity == 100
     assert o.avg_fill_price == Decimal("10.5000")
-    assert o.fill_ids == ["F001"]
+    assert o.fill_ids == ("F001",)
     assert o.status is OrderStatus.FILLED
 
 
@@ -122,7 +122,7 @@ def test_record_fill_for_new_order_does_not_mutate_order():
     assert o.status is OrderStatus.NEW
     assert o.filled_quantity == 0
     assert o.avg_fill_price is None
-    assert o.fill_ids == []
+    assert o.fill_ids == ()
 
 
 def test_multiple_partial_fills_keep_partial_status_until_complete():

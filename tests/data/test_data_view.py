@@ -110,7 +110,13 @@ def test_current_price_does_not_hide_data_validation_error():
         def get_bars(self, symbol, start, end):
             raise InvalidDataError("bars", "malformed source row")
 
-    view = DataView(portal=BrokenPortal(), visible_through="20240102")
+    # The portal must have at least one calendar day for the lookback
+    # window to actually invoke get_bars (else current_price returns
+    # None without touching the data layer).
+    view = DataView(
+        portal=BrokenPortal(calendar=["20240102"]),
+        visible_through="20240102",
+    )
     with pytest.raises(InvalidDataError, match="malformed"):
         view.current_price("600000.SH")
 

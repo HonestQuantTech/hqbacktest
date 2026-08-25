@@ -24,10 +24,10 @@ Out of scope (deferred to task 12+):
 
 from dataclasses import asdict
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..data.data_view import DataView
-from ..data.errors import MissingDataError
+from ..data.errors import DataError, MissingDataError, SnapshotFileMissingError
 from ..data.hqdata_portal import HqDataCsvPortal, resolve_source_location
 from ..data.portal import MarketDataPortal
 from ..domain.enums import EventType, OrderStatus, RejectReason
@@ -39,8 +39,11 @@ from .broker import SimulatedBroker
 from .config import BacktestConfig
 from .context import Context
 from .corporate_actions import (
+    DEFAULT_JUMP_BAND,
+    FactorDiagnostic,
     FactorDiagnosticCollector,
     V01_ADJUSTMENT_POLICY,
+    analyze_factor_series,
 )
 from .errors import (
     ConfigurationError,
@@ -48,12 +51,26 @@ from .errors import (
     RunFailed,
     StrategyLifecycleError,
 )
+from ..data.data_view import CURRENT_PRICE_LOOKBACK
 from .events import EngineEvent, EventLog
 from .iterator import TradingDayIterator
 from .metrics import EquityPoint, compute_metrics
 from .result import BacktestResult
 from .scheduler import run_day
 from .strategy import NullStrategy, Strategy
+
+
+def _lookback_start_date(today: str) -> str:
+    """Compute the lookback-window start date for valuation fallbacks.
+
+    Mirrors `DataView._trading_day_lookback_start`: a generous 5-year
+    window that comfortably covers `CURRENT_PRICE_LOOKBACK` trading days
+    without forcing the portal to scan the full pre-start history.
+    """
+    yyyymmdd = int(today)
+    year = yyyymmdd // 10000
+    start_year = max(year - 5, 1900)
+    return f"{start_year}0101"
 
 
 class BacktestEngine:
@@ -81,6 +98,19 @@ class BacktestEngine:
         self._event_log = EventLog()
         self._portfolio = Portfolio(initial_cash=config.initial_cash)
         self._factor_diagnostics = FactorDiagnosticCollector()
+        # Task 19: per-symbol cumulative factor history (sorted by
+        # date) so the engine can run holdings-period factor
+        # diagnostics incrementally without re-reading the portal.
+        self._factor_history: Dict[str, List[Tuple[str, Decimal]]] = {}
+        # Holding-period jump band (relative). A factor ratio outside
+        # this band while a symbol is held is a strong dividend / split
+        # signal. 0.1% matches task 19's "cannot be ignored" threshold;
+        # the default `DEFAULT_JUMP_BAND` (0.5, 2.0) is reserved for
+        # general factor-quality diagnostics.
+        self._holding_jump_band: Tuple[Decimal, Decimal] = (
+            Decimal("0.999"),
+            Decimal("1.001"),
+        )
         self._fills: List[Fill] = []
         self._equity_curve: List[EquityPoint] = []
         # Every order the engine has consumed (insertion-ordered), so the
@@ -259,6 +289,11 @@ class BacktestEngine:
             # End-of-day settlement: roll today's buys into sellable (T+1).
             self._portfolio.settle_t1(today=today, previous_date=None)
             self._snapshot_equity(today, portal)
+            # Task 19: run holdings-period factor diagnostics for
+            # symbols held or traded today. Diagnostics are pure
+            # observations: they never mutate cash, positions or
+            # equity, and they cannot abort the run.
+            self._run_factor_diagnostics(today, portal)
         except RunFailed:
             raise
         except Exception as exc:
@@ -339,17 +374,32 @@ class BacktestEngine:
     def _snapshot_equity(self, today: str, portal: MarketDataPortal) -> None:
         """Record one EquityPoint using today's close for market value.
 
-        Contract §4: day-end valuation uses D's valid unadjusted close. If a
-        HELD symbol has no valid close (missing bar, or close <= 0), the run
-        FAILS with a DATA_ERROR event — v0.1 never silently skips valuation,
-        never uses previous closes, and never values holdings at zero.
+        Contract §4 + task 14 valuation semantics:
+            * Preferred source: today's valid unadjusted close (D's bar).
+            * Fallback: when the held symbol has no bar on `today`
+              (suspended / delisted / pre-IPO), use the most recent valid
+              close from the same `current_price` lookback window and
+              record a `DATA_WARNING` event so the audit trail reflects
+              the deviation. The fallback is bounded by
+              `DataView.CURRENT_PRICE_LOOKBACK` (20) trading days.
+            * If neither today's close nor any lookback close is
+              available, the run FAILS with `DATA_ERROR` — v0.1 never
+              values holdings at zero and never silently drops a holding.
         """
         prices: Dict[str, Decimal] = {}
         for symbol, position in self._portfolio.positions.items():
             if position.quantity == 0:
                 continue
-            close = self._close_price_or_none(portal, symbol, today)
-            if close is None:
+            today_price = self._close_price_or_none(portal, symbol, today)
+            if today_price is not None:
+                prices[symbol] = today_price
+                continue
+            # No bar for `symbol` today (suspended / delisted / pre-IPO).
+            # Fall back to the most recent valid close within the same
+            # lookback window used by `DataView.current_price` and emit a
+            # `DATA_WARNING` so the audit trail reflects the deviation.
+            fallback = self._lookback_price_or_none(portal, symbol, today)
+            if fallback is None:
                 self._event_log.record(
                     EngineEvent(
                         date=today,
@@ -357,7 +407,7 @@ class BacktestEngine:
                         error="MissingDataError",
                         detail=(
                             f"no valid close for held symbol {symbol} on "
-                            f"{today}; valuation aborted"
+                            f"{today} (lookback exhausted); valuation aborted"
                         ),
                     )
                 )
@@ -365,26 +415,53 @@ class BacktestEngine:
                     today,
                     "AFTER_TRADING_END",
                     MissingDataError(
-                        "close", f"no valid close for held symbol {symbol} on {today}"
+                        "close",
+                        f"no valid close for held symbol {symbol} on {today}",
                     ),
                 )
-            prices[symbol] = close
+            self._event_log.record(
+                EngineEvent(
+                    date=today,
+                    phase=EventType.DATA_WARNING,
+                    detail=(
+                        f"held symbol {symbol} has no bar on {today}; "
+                        f"valued at fallback close {fallback}"
+                    ),
+                )
+            )
+            prices[symbol] = fallback
         market_value = self._portfolio.market_value(prices)
         total_equity = self._portfolio.cash + market_value
+        # Task 17: anchor the first day's `daily_return` and the
+        # `drawdown` series to `initial_cash` (not a zero seed). A first-
+        # day P&L must flow into the equity curve so `∏(1 + r) == 1 +
+        # total_return` and `max_drawdown` can see day-1 drawdowns.
         prev_total = self._equity_curve[-1].total_equity if self._equity_curve else None
-        if prev_total is None or prev_total == 0:
+        if prev_total is None:
+            # First trading day: benchmark the return against initial_cash
+            # (task 17) so a first-day P&L flows into the return series.
+            daily_return = (
+                total_equity / self._config.initial_cash - Decimal("1")
+                if self._config.initial_cash > 0
+                else Decimal("0")
+            )
+        elif prev_total == 0:
+            # Defensive: a zero prior equity cannot produce a return ratio.
             daily_return = Decimal("0")
         else:
             daily_return = total_equity / prev_total - Decimal("1")
+        # Drawdown: the running peak must include `initial_cash`, otherwise
+        # a first-day loss is silently lost once a later day's equity stays
+        # below initial_cash but above the prior day's equity (task 17:
+        # "回撤峰值序列以 initial_cash 为初始峰值").
+        peak = self._config.initial_cash
         if self._equity_curve:
-            peak = max(pt.total_equity for pt in self._equity_curve)
-            drawdown = (
-                max(Decimal("0"), (peak - total_equity) / peak)
-                if peak > 0
-                else Decimal("0")
-            )
-        else:
-            drawdown = Decimal("0")
+            peak = max(peak, *(pt.total_equity for pt in self._equity_curve))
+        drawdown = (
+            max(Decimal("0"), (peak - total_equity) / peak)
+            if peak > 0
+            else Decimal("0")
+        )
         self._equity_curve.append(
             EquityPoint(
                 date=today,
@@ -395,7 +472,8 @@ class BacktestEngine:
                 drawdown=drawdown,
             )
         )
-        # Per-day position snapshot with today's actual close prices.
+        # Per-day position snapshot with the valuation price actually used
+        # (today's close or a lookback close for suspended symbols).
         for symbol, position in self._portfolio.positions.items():
             if position.quantity == 0:
                 continue
@@ -420,9 +498,13 @@ class BacktestEngine:
 
         Only `MissingDataError` maps to None; corrupt data or I/O errors
         propagate and abort the run via the caller's RunFailed wrapping.
+        `SnapshotFileMissingError` (whole-day file gone) is an
+        infrastructure failure and propagates as well.
         """
         try:
             bars = portal.get_bars(symbol, today, today)
+        except SnapshotFileMissingError:
+            raise
         except MissingDataError:
             return None
         if not bars:
@@ -432,11 +514,44 @@ class BacktestEngine:
             return None
         return close
 
+    @staticmethod
+    def _lookback_price_or_none(
+        portal: MarketDataPortal, symbol: str, today: str
+    ) -> Optional[Decimal]:
+        """Most recent valid close for `symbol` within the lookback window.
+
+        Mirrors `DataView.current_price` exactly so the engine's valuation
+        fallback agrees with what strategies see through `DataView`. Used
+        only when `_close_price_or_none` returns None for the same day.
+        """
+        try:
+            trading_days = portal.get_calendar(_lookback_start_date(today), today)
+        except MissingDataError:
+            trading_days = []
+        if not trading_days:
+            return None
+        lookback = trading_days[-CURRENT_PRICE_LOOKBACK:]
+        for day in reversed(lookback):
+            try:
+                bars = portal.get_bars(symbol, day, day)
+            except SnapshotFileMissingError:
+                raise
+            except MissingDataError:
+                continue
+            if not bars:
+                continue
+            close = bars[0].close
+            if close is not None and close > 0:
+                return close
+        return None
+
     def _sellable_for(self, symbol: str) -> int:
         pos = self._portfolio.positions.get(symbol)
         return pos.sellable_quantity if pos else 0
 
-    def _on_open_match(self, today: str, pending: List[Order]) -> None:
+    def _on_open_match(
+        self, today: str, pending: List[Order], context: Context
+    ) -> None:
         """Match pending orders at `OPEN_MATCH(today)` and apply fills.
 
         Each order goes through `TradingRuleSet.evaluate` first; the first
@@ -448,6 +563,11 @@ class BacktestEngine:
         aborts the run via `RunFailed`.
         """
         for order in pending:
+            self._orders[order.order_id] = order
+        # Task 18: fold out-of-universe rejections into the orders
+        # table so the audit trail sees them. These orders never
+        # reached the broker.
+        for order in context._consume_out_of_universe_orders():
             self._orders[order.order_id] = order
         results = self._broker.match(
             pending,
@@ -553,3 +673,118 @@ class BacktestEngine:
     def data_view(self, today: str) -> DataView:
         """Build a `DataView` snapshot as the engine would at `BAR_CLOSE(today)`."""
         return DataView(portal=self.portal, visible_through=today)
+
+    # ------------------------------------------------------------------ #
+    # Task 19: holdings-period factor diagnostics
+    # ------------------------------------------------------------------ #
+
+    def _run_factor_diagnostics(self, today: str, portal: MarketDataPortal) -> None:
+        """For each currently-held symbol, run factor diagnostics.
+
+        Reads the cumulative factor history for `today`, calls
+        `analyze_factor_series` with the tighter holdings-period
+        jump band (0.1% relative), and records observations on
+        the `FactorDiagnosticCollector` and a `DATA_WARNING`
+        event for each new anomaly.
+
+        Only symbols with a non-zero position at day-end are scanned
+        (task 19: "持仓涉及的标的"). A symbol that was fully sold
+        (position back to zero) must NOT keep emitting holdings-period
+        warnings — its holding period has ended, and the accumulated
+        factor history is therefore reset.
+
+        Diagnostics are pure observations: they MUST NOT mutate
+        cash, positions, or equity (contract task 9 invariant).
+        Missing factors or whole-day snapshot failures are silently
+        skipped so the run continues (the existing
+        `_snapshot_equity` / broker paths raise DATA_ERROR on
+        infrastructure failures, and we do not want to raise a
+        second error here).
+        """
+        relevant = {
+            sym for sym, pos in self._portfolio.positions.items() if pos.quantity > 0
+        }
+        # Drop factor history for symbols no longer held so a future
+        # re-entry does not compare against a pre-gap, stale factor.
+        for sym in list(self._factor_history):
+            if sym not in relevant:
+                del self._factor_history[sym]
+        for sym in sorted(relevant):
+            history = self._factor_history.get(sym, [])
+            new_factor_rows = self._load_factor_rows(sym, today)
+            for d, f in new_factor_rows:
+                if not history or history[-1][0] < d:
+                    history.append((d, f))
+            self._factor_history[sym] = history
+            if len(history) < 2:
+                continue
+            diagnostics = analyze_factor_series(
+                symbol=sym,
+                expected_dates=[d for d, _ in history],
+                factors=history,
+                jump_band=self._holding_jump_band,
+            )
+            existing = {
+                (d.symbol, d.date, d.kind, d.detail)
+                for d in self._factor_diagnostics.all()
+            }
+            for diag in diagnostics:
+                key = (diag.symbol, diag.date, diag.kind, diag.detail)
+                if key in existing:
+                    continue
+                self._factor_diagnostics.record(diag)
+                # Include the actual factor values in the audit event so
+                # the human can verify the ex-date dividend event from
+                # the event log alone (without re-reading the snapshot).
+                prev_factor = self._prev_factor_before(history, diag.date)
+                new_factor = self._factor_on(history, diag.date)
+                detail = (
+                    f"factor diagnostic: {diag.symbol} {diag.kind} on "
+                    f"{diag.date}: factor {prev_factor} -> {new_factor}; "
+                    f"{diag.detail}"
+                )
+                self._event_log.record(
+                    EngineEvent(
+                        date=today,
+                        phase=EventType.DATA_WARNING,
+                        detail=detail,
+                    )
+                )
+
+    def _load_factor_rows(self, symbol: str, today: str) -> List[Tuple[str, Decimal]]:
+        """Read today's factor for `symbol`, returning a one-row list.
+
+        Tolerates data-layer absences (MissingDataError /
+        SnapshotFileMissingError / InvalidDataError) by returning an
+        empty list (the analyzer will simply not see a row for today).
+        This is intentional: factor-data absences are diagnostic
+        observations, not run-aborting failures. Programming errors
+        (anything that is NOT a `DataError`) still propagate.
+        """
+        try:
+            rows = self.portal.get_factor(symbol, today, today)
+        except DataError:
+            return []
+        return [(today, f) for _, f in rows]
+
+    @staticmethod
+    def _prev_factor_before(
+        history: List[Tuple[str, Decimal]], date: str
+    ) -> Optional[Decimal]:
+        """Return the most recent factor in `history` strictly
+        before `date`, or `None` if no earlier row exists.
+        """
+        prev: Optional[Decimal] = None
+        for d, f in history:
+            if d < date:
+                prev = f
+            else:
+                break
+        return prev
+
+    @staticmethod
+    def _factor_on(history: List[Tuple[str, Decimal]], date: str) -> Optional[Decimal]:
+        for d, f in history:
+            if d == date:
+                return f
+        return None

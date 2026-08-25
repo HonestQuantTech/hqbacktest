@@ -12,6 +12,7 @@ from .errors import (
     FutureDataAccessError,
     InvalidDataError,
     MissingDataError,
+    SnapshotFileMissingError,
     UnknownSymbolError,
 )
 from .hqdata_portal import (
@@ -42,6 +43,7 @@ __all__ = [
     "InvalidDataError",
     "MarketDataPortal",
     "MissingDataError",
+    "SnapshotFileMissingError",
     "UnknownSymbolError",
     "assert_unique_sorted",
     "require_columns",

@@ -8,19 +8,26 @@ in `state_machine.py`. Every transition carries the trading day it happened on
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import List, Optional
+from typing import Optional, Tuple
 
 from .enums import EventType, OrderStatus, OrderType, RejectReason, Side
 from .money import PRICE_QUANT
 from .state_machine import validate_transition
 
 
-@dataclass
+@dataclass(frozen=True)
 class Order:
     """A single strategy-issued order.
 
-    `filled_quantity` accumulates across fills; `avg_fill_price` is recomputed
-    on every fill using a running weighted average.
+    `filled_quantity` accumulates across fills; `avg_fill_price` is
+    recomputed on every fill using a running weighted average.
+
+    Task 18: the dataclass is **frozen**. Strategies that receive an
+    Order via `Context.pending_orders()` cannot mutate any field —
+    attempted assignment raises `FrozenInstanceError`. Lifecycle
+    mutations (`transition`, `record_fill`) use `object.__setattr__`
+    to bypass the freeze; that path is engine-internal and never
+    exposed to strategy code.
     """
 
     order_id: str
@@ -45,7 +52,7 @@ class Order:
     reject_reason: Optional[RejectReason] = None
     reject_detail: Optional[str] = None
 
-    fill_ids: List[str] = field(default_factory=list)
+    fill_ids: Tuple[str, ...] = field(default_factory=tuple)
     notes: str = ""
 
     def __post_init__(self) -> None:
@@ -108,28 +115,32 @@ class Order:
         reason: Optional[RejectReason] = None,
         detail: Optional[str] = None,
     ) -> None:
-        """Move the order to `target`, stamping the matching timestamp."""
+        """Move the order to `target`, stamping the matching timestamp.
+
+        Task 18: this mutator uses `object.__setattr__` to bypass the
+        frozen-dataclass guard. Only the engine / broker may call it.
+        """
         self._validate_date(at, "at")
         validate_transition(self.status, target)
-        self.status = target
+        object.__setattr__(self, "status", target)
         if target is OrderStatus.ACCEPTED:
-            self.accepted_at = at
+            object.__setattr__(self, "accepted_at", at)
         elif target is OrderStatus.PENDING:
-            self.pending_at = at
+            object.__setattr__(self, "pending_at", at)
         elif target is OrderStatus.CANCELLED:
-            self.cancelled_at = at
+            object.__setattr__(self, "cancelled_at", at)
             if reason is not None:
-                self.reject_reason = reason
+                object.__setattr__(self, "reject_reason", reason)
             if detail is not None:
-                self.reject_detail = detail
+                object.__setattr__(self, "reject_detail", detail)
         elif target is OrderStatus.REJECTED:
-            self.rejected_at = at
-            self.reject_reason = reason or RejectReason.OTHER
-            self.reject_detail = detail or ""
+            object.__setattr__(self, "rejected_at", at)
+            object.__setattr__(self, "reject_reason", reason or RejectReason.OTHER)
+            object.__setattr__(self, "reject_detail", detail or "")
         elif target is OrderStatus.FILLED:
-            self.filled_at = at
+            object.__setattr__(self, "filled_at", at)
         elif target is OrderStatus.PARTIALLY_FILLED:
-            self.partially_filled_at = at
+            object.__setattr__(self, "partially_filled_at", at)
 
     def record_fill(
         self,
@@ -138,9 +149,16 @@ class Order:
         price: Decimal,
         at: str,
     ) -> None:
-        """Record a single fill and update running aggregates."""
+        """Record a single fill and update running aggregates.
+
+        v0.1 always moves orders through ACCEPTED → PENDING before any
+        fill arrives, so the ACCEPTED branch in the status guard was
+        unreachable in practice (task 16).
+
+        Task 18: this mutator uses `object.__setattr__` to bypass the
+        frozen-dataclass guard. Only the engine / broker may call it.
+        """
         if self.status not in (
-            OrderStatus.ACCEPTED,
             OrderStatus.PENDING,
             OrderStatus.PARTIALLY_FILLED,
         ):
@@ -164,15 +182,19 @@ class Order:
                 f"fill overflow: {self.filled_quantity}+{quantity} > {self.quantity}"
             )
         if self.avg_fill_price is None:
-            self.avg_fill_price = price.quantize(PRICE_QUANT)
+            new_avg = price.quantize(PRICE_QUANT)
         else:
             total = self.avg_fill_price * Decimal(
                 self.filled_quantity
             ) + price * Decimal(quantity)
-            self.avg_fill_price = (total / Decimal(new_filled)).quantize(PRICE_QUANT)
-        self.filled_quantity = new_filled
-        self.fill_ids.append(fill_id)
-        if self.filled_quantity == self.quantity:
+            new_avg = (total / Decimal(new_filled)).quantize(PRICE_QUANT)
+        object.__setattr__(self, "avg_fill_price", new_avg)
+        object.__setattr__(self, "filled_quantity", new_filled)
+        # fill_ids is an immutable tuple so a strategy holding the frozen
+        # Order cannot append/clear it in place (task 18). Rebuild the
+        # tuple here via object.__setattr__ to bypass the frozen guard.
+        object.__setattr__(self, "fill_ids", self.fill_ids + (fill_id,))
+        if new_filled == self.quantity:
             self.transition(OrderStatus.FILLED, at=at)
         elif self.status is not OrderStatus.PARTIALLY_FILLED:
             self.transition(OrderStatus.PARTIALLY_FILLED, at=at)

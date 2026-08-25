@@ -418,7 +418,10 @@ def test_engine_conservation_cash_plus_market_value():
     assert portfolio.cash + portfolio.market_value(
         {"600000.SH": Decimal("10.0000")}
     ) == Decimal("99984.00")
-    # Fees live in `realized_pnl` via the broker + portfolio.apply_fill path.
+    # Fees do NOT live in `realized_pnl`: per contract §3.1 / rule 8,
+    # realized_pnl is the gross (sell_price - avg_cost) * quantity and
+    # stays independent of commission / stamp_tax / other_fee. Fees flow
+    # through `cash` only.
     fills = [e for e in engine.event_log.all() if e.phase is EventType.ORDER_FILLED]
     assert len(fills) == 3
 

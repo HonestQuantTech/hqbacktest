@@ -237,7 +237,16 @@ def _require_decimal(
     value = section[key]
     if isinstance(value, bool):
         raise ConfigError(f"[{section_name}].{key} must be a number, not bool")
-    if isinstance(value, (int, float, str)):
+    # Task 16: float is forbidden at the CLI layer too, matching the
+    # engine's contract rule 5. Without this check a TOML like
+    # `initial_cash = 100000.0` would silently convert to a Decimal via
+    # `Decimal(str(float))`, masking the precision concern.
+    if isinstance(value, float):
+        raise ConfigError(
+            f"[{section_name}].{key} must be int/str/Decimal; float is "
+            "forbidden (contract rule 5)"
+        )
+    if isinstance(value, (int, str)):
         try:
             d = Decimal(str(value))
         except Exception as exc:
@@ -249,6 +258,16 @@ def _require_decimal(
     else:
         raise ConfigError(
             f"[{section_name}].{key} must be a number, got {type(value).__name__}"
+        )
+    # Task 20: NaN / +Inf / -Inf are technically parseable by
+    # `Decimal(str('nan'))` but break every downstream comparison
+    # (e.g. `nan < 0` raises InvalidOperation). Reject them here
+    # so the user gets a clean single-line ConfigError instead of
+    # a traceback.
+    if not d.is_finite():
+        raise ConfigError(
+            f"[{section_name}].{key}={d} must be a finite number "
+            "(NaN / +Inf / -Inf are not allowed)"
         )
     if min_value is not None and d < min_value:
         raise ConfigError(f"[{section_name}].{key}={d} must be >= {min_value}")
