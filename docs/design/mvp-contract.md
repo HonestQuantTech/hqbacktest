@@ -138,7 +138,7 @@
 - `data portal` 通过 `data_root` 与 `source` 解析数据集根目录。v0.1 的固定布局为 `{root}/{source}/calendar.csv`，以及 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv`、`stock_factor/{YYYYMMDD}.csv`；任何缺失、不可读或格式不符的文件必须报错，不得联网回补。
 - hqdata CSV 快照是叶子数据边界；更新数据只能在回测运行前通过 hqdata CLI 完成。
 
-### 3.3 数据可见性与缺行语义（任务 14 固化）
+### 3.3 数据可见性与缺行语义
 
 | 维度 | v0.1 默认决定 |
 | --- | --- |
@@ -150,7 +150,7 @@
 | `Bar.volume` 单位 | **手**（1 手 = 100 股；与 Tushare `hqdata` 适配器口径一致）；调用方需要股数时应乘以 `LOT_SIZE`。 |
 | 双门户一致性 | `InMemoryDataPortal` 与 `HqDataCsvPortal` 行为完全一致（parity 测试覆盖）。 |
 
-### 3.4 撮合与账本口径（任务 16 固化）
+### 3.4 撮合与账本口径
 
 | 维度 | v0.1 默认决定 |
 | --- | --- |
@@ -166,7 +166,7 @@
 | `target_quantity_for_value(0)` | 返回 `0`（flatten），与 docstring 一致。 |
 | CLI `initial_cash` | 拒绝 `float`（TOML 字面 `100000.0` 报错），与引擎层 `BacktestConfig` 严格度对齐。 |
 
-### 3.5 净值与绩效指标口径（任务 17 固化）
+### 3.5 净值与绩效指标口径
 
 | 维度 | v0.1 默认决定 |
 | --- | --- |
@@ -178,7 +178,7 @@
 | Decimal 量化 | 所有 `float` 桥接的 Decimal 输出统一 quantize 到 `Decimal('0.000000000001')`，保证 `summary.json` 干净。 |
 | `positions.sellable_quantity` | **结转后**（D 行快照为 D+1 起始时可卖数）；engine 在 `_snapshot_equity` 前调用 `settle_t1`，D 行的 `sellable_quantity` 即已包含当日成交的滚动。 |
 
-### 3.6 策略隔离与审计完整性（任务 18 固化）
+### 3.6 策略隔离与审计完整性
 
 | 维度 | v0.1 默认决定 |
 | --- | --- |
@@ -186,9 +186,9 @@
 | `DataView.portal` 私有 | 字段名 `_portal`（下划线私有约定），策略**无法通过公开 API**（`view.portal`）访问——该属性已重命名为 `_portal`，访问旧名抛 `AttributeError`。该约定是 Python 的"约定私有"语义，**不**是语言级强制力：策略仍可经 `view._portal`（或 `context._data_view._portal`）触及 raw portal——这是 Python 语言限制而非本项目缺陷；契约依靠约定 + 审计测试守住。所有合规数据访问走 `view.history` / `view.current_price` / `view.universe`。 |
 | Universe 生效 | `set_universe(...)` 后，对未声明的符号下单立即拒绝（`RejectReason.OUT_OF_UNIVERSE`，含 ORDER_CREATED + ORDER_REJECTED 事件，Order 不经过 broker、停留在 `_out_of_universe_orders` 并在 result 构造时折入 `orders_table`）；**未设 universe 时不限制**。 |
 | 历史股票池 | `Context.historical_universe()` 返回 `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束；不暴露 raw portal。 |
-| 返回值防御性 | `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用（任务 15）。 |
+| 返回值防御性 | `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用。 |
 
-### 3.7 因子诊断接入与分红偏差显性化（任务 19 固化）
+### 3.7 因子诊断接入与分红偏差显性化
 
 | 维度 | v0.1 默认决定 |
 | --- | --- |
@@ -200,7 +200,7 @@
 | CLI 警告 | `run_from_config` 末尾若 `result.factor_diagnostics` 非空，打印一行 `warning: N corporate-action factor jumps detected during holding periods; NAV excludes dividends (adjustment_policy=none), see summary.json`。 |
 | 文档承诺 | README 显著位置明示：`adjustment_policy=none` 下跨除权日的净值**系统性低估**（少分红现金），长区间结果不可用于收益评估，并链接因子诊断输出（`summary.json` / `events.jsonl`）。 |
 
-### 3.8 CLI 易用性与契约承诺一致性（任务 20 固化）
+### 3.8 CLI 易用性与契约承诺一致性
 
 | 维度 | v0.1 默认决定 |
 | --- | --- |

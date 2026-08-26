@@ -86,7 +86,7 @@
 - **账户：** 单个人民币现金账户、股票现货多头；不使用杠杆或保证金。
 - **数据：** 每次回测固定使用一个 `hqdata` 数据源。需要日线时，首选 Tushare 或 RiceQuant；当前 `hqdata` 的 AkShare 适配器不提供稳定的日线能力，不能作为首版回测数据源。
 - **时间：** 日期一律使用 `YYYYMMDD`。`before_trading_start(D)` 只能访问 D-1 及以前的数据，可在 D 开盘参与撮合；`on_bar(D)` 在 D 收盘后才看到 D 日线，所提交订单最早在 D+1 开盘处理。
-- **缺行与停牌（任务 14）：** `get_bars` 允许逐日间隙（窗口内无任何行返回 `[]`）；个股当日缺行（停牌 / 未上市 / 已退市）属正常业务结果；**整日快照文件缺失** 是基础设施错误，必须中止运行。停牌持仓估值采用「最近 20 个交易日内最近一个有效收盘价」并写入 `DATA_WARNING` 事件；首日盘前哨兵 `visible_through="00000000"` 不抛异常。
+- **缺行与停牌：** `get_bars` 允许逐日间隙（窗口内无任何行返回 `[]`）；个股当日缺行（停牌 / 未上市 / 已退市）属正常业务结果；**整日快照文件缺失** 是基础设施错误，必须中止运行。停牌持仓估值采用「最近 20 个交易日内最近一个有效收盘价」并写入 `DATA_WARNING` 事件；首日盘前哨兵 `visible_through="00000000"` 不抛异常。
 - **成交量单位：** `Bar.volume` 单位为「**手**」（1 手 = 100 股；与 Tushare `hqdata` 适配器口径一致）；需要股数时应乘以 `LOT_SIZE`。
 - **成交：** 首版市价单按符合规则的开盘价全额成交；订单、拒绝、费用和成交都要保留可追溯记录。
 - **复权：** 成交、现金账本和 v0.1 净值均使用未复权价格，且 `adjustment_policy` 固定为 `none`。同源复权因子可用于数据质量诊断，但不用于伪造现金分红、送配、配股或税务会计。
@@ -105,7 +105,7 @@
 
 ### 当前阶段
 
-`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、公司行为扩展的设计门槛、可审计的结果对象与绩效指标、端到端示例与回归基准，以及 TOML 配置 + `hqbacktest run` CLI（任务 2–12）：买入并持有与均线策略在 7 天 `InMemoryDataPortal` 上产出确定的现金、持仓、成交、费用明细与净值曲线，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略、因子诊断、五个 CSV 表与 `PerformanceMetrics`，`save(dir)` / `load(dir)` 可重建，CLI 输出目录在两次相同输入下字节相同（去除 runtime 内存地址后）。CI（任务 13）覆盖 Python 3.10/3.11/3.12、black、`pytest`、`pytest-cov`、示例脚本与 CLI smoke，并产出可安装的 `sdist` + `wheel`。
+`hqbacktest` v0.1 已完成可安装包、领域模型、受限 CSV 数据层、日频事件时钟、受控策略接口、开盘市价撮合、可替换的 A 股规则与成本模型、公司行为扩展的设计门槛、可审计的结果对象与绩效指标、端到端示例与回归基准，以及 TOML 配置 + `hqbacktest run` CLI：买入并持有与均线策略在 7 天 `InMemoryDataPortal` 上产出确定的现金、持仓、成交、费用明细与净值曲线，规则触发的拒绝原因会出现在事件日志中，`adjustment_policy` 在配置校验层被严格收敛到 `"none"`，`BacktestResult` 记录策略、因子诊断、五个 CSV 表与 `PerformanceMetrics`，`save(dir)` / `load(dir)` 可重建，CLI 输出目录在两次相同输入下字节相同（去除 runtime 内存地址后）。CI 覆盖 Python 3.10/3.11/3.12、black、`pytest`、`pytest-cov`、示例脚本与 CLI smoke，并产出可安装的 `sdist` + `wheel`。
 
 ```bash
 git clone git@github.com:HonestQuantTech/hqbacktest.git
@@ -135,13 +135,13 @@ hqbacktest/
 ├── pyproject.toml          # 构建、依赖、pytest 与 black 配置
 ├── src/hqbacktest/         # 引擎源码（src 布局）
 │   ├── __init__.py         # 版本及稳定的公开 API 导出
-│   ├── __main__.py         # `hqbacktest run` CLI 入口（任务 12）
-│   ├── domain/             # 任务 3 的模型、状态机、精度与序列化
-│   ├── data/               # 任务 4 的数据门户、DataView、缓存与校验
-│   ├── engine/             # 任务 5–6 的事件时钟、调度器、BacktestEngine 与受控策略接口
-│   └── cli/                # 任务 12 的 TOML 配置解析、CLI runner、退出码
+│   ├── __main__.py         # `hqbacktest run` CLI 入口
+│   ├── domain/             # 模型、状态机、精度与序列化
+│   ├── data/               # 数据门户、DataView、缓存与校验
+│   ├── engine/             # 事件时钟、调度器、BacktestEngine 与受控策略接口
+│   └── cli/                # TOML 配置解析、CLI runner、退出码
 ├── tests/                  # 单元测试，必须不依赖网络或本地行情文件
-├── examples/               # 端到端示例（任务 11：buy_and_hold / moving_average）
+├── examples/               # 端到端示例（buy_and_hold / moving_average）
 └── docs/design/            # 设计文档（如 mvp-contract.md）
 ```
 
@@ -158,7 +158,7 @@ hqbacktest/
 
 数据集必须包含 `calendar.csv`，以及按交易日组织的 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv` 与 `stock_factor/{YYYYMMDD}.csv`。这些文件由 `hqdata` CLI 在回测前写入；hqbacktest 既不下载数据，也不保存凭证。任何真实 token、账户号或私密配置都**不应**提交到仓库，也不应出现在回测结果目录中。
 
-### 性能与内存（任务 15）
+### 性能与内存
 
 `HqDataCsvPortal` 在单次回测中按「按日文件缓存 + 按 symbol 累积序列」两层缓存：
 
@@ -169,7 +169,7 @@ hqbacktest/
 
 真实数据基准（`~/.hqdata/tushare`，20260105–20260731，139 个交易日，每个 daily 文件约 5000 行）：
 
-| 场景 | 总耗时（含首次数据加载） | 任务 15 目标 |
+| 场景 | 总耗时（含首次数据加载） | 目标 |
 | --- | --- | --- |
 | 5 stocks × 139 days MA 策略 | ~7.6 s | < 10 s ✅ |
 | 300 stocks × 139 days MA 策略 | ~9.4 s | < 120 s ✅ |
@@ -178,7 +178,7 @@ hqbacktest/
 
 性能冒烟测试在 `tests/data/test_task15_performance.py`，50 symbols × 250 days 全量 `history(bar_count=20)` 在 15 秒阈值内完成。
 
-### 撮合与账本口径（任务 16）
+### 撮合与账本口径
 
 - **同日撮合顺序：** 单个 `OPEN_MATCH(today)` batch 内**所有 SELL 先撮合、再撮合 BUY**（A 股「卖出资金当日可用」），同侧内保持策略提交顺序。资金检查用**滚动现金**而非撮合前快照。
 - **整手取整：** 仅 BUY 按 100 股整手向下取整；SELL 允许任意正整数股（含零股），静默截到整手违反契约。`order_target(symbol, 0)` 必须能清仓含零股的持仓。
@@ -191,7 +191,7 @@ hqbacktest/
 
 完整口径见 `docs/design/mvp-contract.md` §3.4。手算回归测试在 `tests/engine/test_task16_matching.py`。
 
-### 净值与绩效指标口径（任务 17）
+### 净值与绩效指标口径
 
 - **首日 P&L 进入曲线：** `daily_return[0] = total_equity[0] / initial_cash - 1`、`drawdown[0] = (initial_cash - total_equity[0]) / initial_cash`，不再硬编码 0；**后续日回撤 running peak = `max(initial_cash, 历史 total_equity)`**（峰值序列以 `initial_cash` 为初始峰值）；满足恒等式 `∏(1 + daily_return) = 1 + total_return`（Decimal 精度内）。
 - **波动率样本不足返回 `None`：** `< 2` 个日收益时 `daily_volatility` / `annualized_volatility` / `sharpe_ratio` 返回 `None` 并附 note，禁止错报 0。真正 0 波动率才返回 `Decimal('0')`。
@@ -201,21 +201,21 @@ hqbacktest/
 
 完整口径见 `docs/design/mvp-contract.md` §3.5。手算回归测试在 `tests/engine/test_task17_metrics.py`。
 
-### 策略隔离与审计完整性（任务 18）
+### 策略隔离与审计完整性
 
 - **`Order` 不可变：** `@dataclass(frozen=True)`，策略通过 `Context.pending_orders()` 拿到 Order 后无法修改任何字段（`quantity` / `avg_fill_price` / `fill_ids` 等）。`transition` / `record_fill` 用 `object.__setattr__` 写入冻结字段，仅 engine / broker 可调用。
 - **`DataView.portal` 私有：** 字段名 `_portal`，策略无法通过 `view.portal.get_bars(sym, future_date)` 读到 `visible_through` 之后的数据；所有数据访问走 `view.history` / `view.current_price` / `view.universe`。
 - **Universe 生效：** `set_universe([...])` 后对未声明符号下单立即拒绝（`RejectReason.OUT_OF_UNIVERSE`，含 ORDER_CREATED + ORDER_REJECTED 事件，Order 不经过 broker、停在 `_out_of_universe_orders` 并在 result 构造时折入 `orders_table`）；未设 universe 时不限制。
 - **历史股票池：** `Context.historical_universe()` 返回 `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束，不暴露 raw portal。
-- **返回值防御性：** `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用（任务 15）。
+- **返回值防御性：** `pending_orders()` / `universe()` / `historical_universe()` 均返回 list 副本；Bar / Factor 跨查询复用。
 
 完整口径见 `docs/design/mvp-contract.md` §3.6。回归测试在 `tests/engine/test_task18_isolation.py`。
 
-### 因子诊断与分红偏差显性化（任务 19）
+### 因子诊断与分红偏差显性化
 
 > ⚠️ **`adjustment_policy=none` 下，跨除权日的净值系统性低估（少分红现金）。**
 
-`v0.1` 严格不实现分红会计（契约任务 9）。任务 19 让偏差**可见**：
+`v0.1` 严格不实现分红会计。让偏差**可见**：
 
 - 引擎对**当前持仓**标的的因子跳变（|Δfactor/factor| > **0.1%**）自动生成 `DATA_WARNING` 事件、`FactorDiagnostic` 记录；写入 `result.factor_diagnostics`、`summary.json`、`events.jsonl`。清仓后（持仓归零）停止告警，持有期结束。
 - **账本零影响**：诊断是只读观测，cash / position / equity 与无诊断时 byte-identical（`test_diagnostics_do_not_change_ledger` 锁定）。
@@ -281,14 +281,14 @@ result.save("results/moving-average")
 | `start_date` / `end_date` | `"20240102"` | 回测的包含式日期区间，格式为 `YYYYMMDD` |
 | `initial_cash` | `"100000"` | 初始人民币现金；账本层将其作为 `Decimal` 字段使用 |
 | `data_root` | `"~/.hqdata"` | hqdata CSV 的根目录；可使用绝对路径覆盖 |
-| `source` | `"tushare"` | 本次运行唯一的数据源目录名；裸名（如 `"tushare"`）解析为 `{data_root}/{source}`，绝对路径（如 `~/.hqdata/tushare`）拆为 `(parent_dir, basename)` 后定位快照（任务 22.1）；不能在一次回测中混用 |
+| `source` | `"tushare"` | 本次运行唯一的数据源目录名；裸名（如 `"tushare"`）解析为 `{data_root}/{source}`，绝对路径（如 `~/.hqdata/tushare`）拆为 `(parent_dir, basename)` 后定位快照；不能在一次回测中混用 |
 | `adjustment_policy` | `"none"` | v0.1 唯一合法值；精确公司行为会计完成并验证前，不支持因子总回报调整 |
 | `universe` | `["600000.SH"]` | 可由策略在 `initialize` 中声明的目标股票池 |
 | `cost_model` | 配置节 | 佣金、最低佣金、印花税和可选过户费；费率必须显式配置 |
 
 > 这张表是 v0.1 已实现的 `BacktestConfig` 字段。CLI 配置 TOML 用同名 key；CLI 还会接受 `--output` 覆盖 `[output].directory`。
 
-## 命令行（任务 12 已实现）
+## 命令行
 
 `hqbacktest run` 命令读取一份 TOML 配置，运行回测，将结果写入独立目录。退出码非零时唯一一行错误输出到 stderr。
 
@@ -302,7 +302,7 @@ hqbacktest run --config configs/moving_average.toml --output results/moving-aver
 python -m hqbacktest run --config configs/moving_average.toml --output results/moving-average
 ```
 
-**策略模块解析（任务 20）：** `hqbacktest run` 会把 config 文件所在目录和当前工作目录加入 `sys.path`，让 `[strategy].module = "my_strategy"` 这类不带点号的写法能直接 import 成功（与 `python -m hqbacktest run` 行为一致）。
+**策略模块解析：** `hqbacktest run` 会把 config 文件所在目录和当前工作目录加入 `sys.path`，让 `[strategy].module = "my_strategy"` 这类不带点号的写法能直接 import 成功（与 `python -m hqbacktest run` 行为一致）。
 
 `--output` 可选：省略时使用配置中 `[output].directory`；提供时覆盖该值（例如 CI 里把结果重定向到临时目录）。
 
@@ -390,7 +390,7 @@ CLI 同时支持 `--force` 覆盖已有输出目录：`hqbacktest run --config F
 
 ## 输出与指标
 
-`BacktestResult.save(dir)` 写出以下文件（任务10实现，公式在 `src/hqbacktest/engine/metrics.py` 顶部注释中显式）：
+`BacktestResult.save(dir)` 写出以下文件（公式在 `src/hqbacktest/engine/metrics.py` 顶部注释中显式）：
 
 | 文件 | 内容 |
 | --- | --- |
@@ -405,7 +405,7 @@ CLI 同时支持 `--force` 覆盖已有输出目录：`hqbacktest run --config F
 指标公式（手算见 `tests/engine/test_metrics.py` 与 `tests/engine/test_task17_metrics.py`）：
 
 - 累计收益 `(final_equity / initial_cash) - 1`
-- 日收益 `EquityPoint.daily_return`（引擎写入，首日锚定到 `initial_cash`——见任务 23）
+- 日收益 `EquityPoint.daily_return`（引擎写入，首日锚定到 `initial_cash`）
 - 年化收益 `(1 + total_return) ** (N / annual_trading_days) - 1`，N < 2 时为 `None`
 - 日波动率 `stdev(equity_curve.daily_returns)`（样本标准差，ddof=1），序列 < 2 时为 `None`
 - 年化波动率 `daily_volatility * sqrt(annual_trading_days)`
