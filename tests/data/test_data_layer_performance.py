@@ -121,78 +121,99 @@ def _build_synthetic_snapshot(
 # ---------------------------------------------------------------------------
 
 
-def test_daily_csv_parsed_at_most_once(tmp_path, monkeypatch):
-    """`stock_daily/{D}.csv` is read at most once across many `get_bars` calls.
+def test_daily_hqdata_call_at_most_once_per_date(tmp_path, monkeypatch):
+    """The portal must invoke `hqdata.get_stock_daily_bar` at most once per
+    trading day, regardless of how many symbols query that day.
 
-    The portal must parse the file the first time and reuse the resulting
-    `dict[symbol, Bar]` for every subsequent query, regardless of the
-    requested window.
+    After the v0.1 refactor the portal no longer parses CSV directly —
+    it routes through `hqdata.api`. Cache-reuse guarantees are then
+    measured at the hqdata API boundary: each `(date)` should be read
+    **once** even when ten overlapping `get_bars` queries hit the
+    portal.
     """
+    import hqdata
+
     symbols = ["600000.SH", "000001.SZ", "688001.SH"]
     days = ["20240102", "20240103", "20240104"]
     _build_synthetic_snapshot(tmp_path, symbols=symbols, trading_days=days)
 
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
 
-    # Wrap pandas.read_csv to count file reads.
-    import pandas as pd
+    api_calls: Dict[str, int] = {}
 
-    real_read = pd.read_csv
-    read_calls: Dict[str, int] = {}
+    real_daily = hqdata.get_stock_daily_bar
 
-    def counting_read(path, *args, **kwargs):
-        p = str(path)
-        read_calls[p] = read_calls.get(p, 0) + 1
-        return real_read(path, *args, **kwargs)
+    def counting_daily(symbol, start_date, end_date, *args, **kwargs):
+        key = f"daily|{start_date}|{end_date}"
+        api_calls[key] = api_calls.get(key, 0) + 1
+        return real_daily(symbol, start_date, end_date, *args, **kwargs)
 
-    monkeypatch.setattr(pd, "read_csv", counting_read)
-    # Reload module-level pd ref (pandas is imported as `pd`).
-    from hqbacktest.data import hqdata_portal as hp_mod
+    monkeypatch.setattr(hqdata, "get_stock_daily_bar", counting_daily)
 
-    monkeypatch.setattr(hp_mod.pd, "read_csv", counting_read)
-
-    # Issue many overlapping queries.
+    # Issue many overlapping queries across symbols and windows.
     for _ in range(5):
         portal.get_bars("600000.SH", "20240102", "20240104")
     for _ in range(5):
         portal.get_bars("000001.SZ", "20240102", "20240103")
     portal.get_bars("688001.SH", "20240104", "20240104")
 
-    # Three daily files, each read exactly once.
+    # Each unique trading day should be fetched once — the portal's
+    # `_read_day_bars(date)` cache feeds every subsequent symbol query
+    # from the cached `dict[symbol, Bar]`.
     for d in days:
-        path_key = str(tmp_path / "tushare" / "stock_daily" / f"{d}.csv")
-        assert (
-            read_calls.get(path_key, 0) == 1
-        ), f"daily file {d} parsed {read_calls.get(path_key, 0)} times, expected 1"
+        key = f"daily|{d}|{d}"
+        assert api_calls.get(key, 0) == 1, (
+            f"hqdata.get_stock_daily_bar({d},{d}) invoked "
+            f"{api_calls.get(key, 0)} times, expected 1"
+        )
+
+    # Total calls across all days should be exactly len(days) — no
+    # implicit windows (e.g. wider ranges fetching every date again).
+    assert sum(api_calls.values()) == len(days)
 
 
-def test_factor_csv_parsed_at_most_once(tmp_path, monkeypatch):
-    """`stock_factor/{D}.csv` is read at most once across queries."""
+def test_factor_hqdata_call_at_most_once_per_date(tmp_path, monkeypatch):
+    """The portal must invoke the factor API at most once per trading day,
+    independent of how many symbols query that day.
+
+    Same cache-reuse contract as for bars: per-day `factor` data is
+    parsed once and reused for every symbol's `get_factor` query on that
+    day. The portal's `_read_day_factors(date)` cache is responsible.
+    """
+    import hqdata
+
     symbols = ["600000.SH", "000001.SZ"]
     days = ["20240102", "20240103"]
     _build_synthetic_snapshot(tmp_path, symbols=symbols, trading_days=days)
 
     portal = HqDataCsvPortal(source="tushare", data_root=str(tmp_path))
 
-    from hqbacktest.data import hqdata_portal as hp_mod
+    api_calls: Dict[str, int] = {}
+    real_factor = hqdata.get_stock_factor
 
-    real_read = hp_mod.pd.read_csv
-    read_calls: Dict[str, int] = {}
+    def counting_factor(*args, **kwargs):
+        # hqdata.get_stock_factor has signature (symbol=None, trade_date=None);
+        # normalize on `trade_date` (the value the portal passes).
+        trade_date = kwargs.get("trade_date") or (
+            args[1] if len(args) >= 2 else args[0] if args else None
+        )
+        key = f"factor|{trade_date}"
+        api_calls[key] = api_calls.get(key, 0) + 1
+        return real_factor(*args, **kwargs)
 
-    def counting_read(path, *args, **kwargs):
-        p = str(path)
-        read_calls[p] = read_calls.get(p, 0) + 1
-        return real_read(path, *args, **kwargs)
-
-    monkeypatch.setattr(hp_mod.pd, "read_csv", counting_read)
+    monkeypatch.setattr(hqdata, "get_stock_factor", counting_factor)
 
     portal.get_factor("600000.SH", "20240102", "20240103")
     portal.get_factor("000001.SZ", "20240102", "20240103")
     portal.get_factor("600000.SH", "20240102", "20240102")
 
     for d in days:
-        path_key = str(tmp_path / "tushare" / "stock_factor" / f"{d}.csv")
-        assert read_calls.get(path_key, 0) == 1
+        key = f"factor|{d}"
+        assert api_calls.get(key, 0) == 1, (
+            f"hqdata.get_stock_factor({d}) invoked "
+            f"{api_calls.get(key, 0)} times, expected 1"
+        )
+    assert sum(api_calls.values()) == len(days)
 
 
 def test_bar_objects_reused_across_overlapping_queries(tmp_path):
