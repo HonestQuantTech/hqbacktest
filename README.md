@@ -2,7 +2,7 @@
 
 <p align="center">
     <img src="https://img.shields.io/badge/status-v0.1.4-blue"/>
-    <img src="https://img.shields.io/badge/hqdata-%3E%3D0.1.21-blue"/>
+    <img src="https://img.shields.io/badge/hqdata-%3E%3D0.1.22-blue"/>
     <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue"/>
 </p>
 
@@ -10,7 +10,7 @@
 
 ## 定位
 
-- **对下：** 只读 `hqdata` CLI 已落盘的 CSV 快照（默认 `~/.hqdata/{source}/`），不导入 `hqdata`、不调用任何数据源 SDK、也不在回测运行时访问网络。
+- **对下：** 通过 `hqdata.api` 的 `csv` source 读取 `hqdata` CLI 已落盘的 CSV 快照（默认 `~/.hqdata/{source}/`）；不调用任何数据源 SDK、也不在回测运行时访问网络。
 - **对中：** 提供严格的交易日事件时钟、数据可见性控制、订单生命周期、虚拟经纪商、持仓账本和交易规则。
 - **对上：** 让策略只通过 `Context` / `DataView` 读取数据、提交订单和查询组合，不接触数据源实现或修改内部账本。
 - **对外：** 输出可复现的净值、订单、成交、持仓、费用和绩效指标，用于研究和模拟，不连接真实券商。
@@ -38,8 +38,10 @@
 
 | 数据 | 来源 | 适用场景 |
 | --- | --- | --- |
-| 真实日线 | `hqdata` CLI 落盘的 CSV 快照（`tushare` / `ricequant`） | 任何需要真实行情的回测 |
+| 真实日线 | `hqdata` CLI 落盘的 CSV 快照（`tushare` / `ricequant`）通过 [`HqDataCsvPortal`](src/hqbacktest/data/hqdata_portal.py) 读取 | 任何需要真实行情的回测 |
 | 内存 fixture | `InMemoryDataPortal` | 单元测试、示例、`tests/examples/` 端到端 fixture |
+
+`HqDataCsvPortal` 在构造时把 snapshot 路径传给 `hqdata.init_source("csv", root=...)`，所有 CSV 解析由 `hqdata.sources.csv_source.CsvSource` 负责（列名校验、文件存在性、整日缺失抛 `SnapshotFileMissingError`）。具体列名、缺失语义见 [`hqdata` README §本地 CSV 数据源](https://github.com/HonestQuantTech/hqdata)。
 
 `hqdata` 当前 `akshare` 适配器不稳定，按其官方说明**不**作为本项目首选数据源。需要日线请使用 `tushare` 或 `ricequant`；具体数据下载与落盘见 [`hqdata` README](https://github.com/HonestQuantTech/hqdata)。
 
@@ -75,8 +77,8 @@ cd hqbacktest
 python -m venv .venv
 source .venv/bin/activate
 
-# 装数据层（按需选择数据源）
-pip install -e "../hqdata[tushare]"
+# 装数据层（hqbacktest 只依赖 hqdata 的 csv source；具体数据源 tushare/ricequant 由 hqdata CLI 异步下载落盘）
+pip install -e "../hqdata"
 
 # 可编辑安装本项目 + 开发依赖
 pip install -e ".[dev]"

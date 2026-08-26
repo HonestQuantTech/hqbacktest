@@ -26,6 +26,10 @@ keywords = [
 dependencies = [
   "pandas>=2.0.0",
   "tomli>=2.0",
+  # hqbacktest reads CSV snapshots exclusively via the hqdata API.
+  # `pip install -e "../hqdata"` before installing hqbacktest, or rely
+  # on an editable install of hqdata that satisfies the dependency.
+  "hqdata>=0.1.22",
 ]
 
 [project.scripts]

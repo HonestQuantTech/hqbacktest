@@ -36,7 +36,7 @@
 | --- | --- |
 | 市场与频率 | A 股普通股票的**日线**回测；先支持沪深普通股票。北交所、ST、上市首日无涨跌幅限制等特殊证券延后。 |
 | 账户 | 单账户、人民币现金、现货多头；不支持融资融券、做空、期货、期权、组合级保证金。 |
-| 数据边界 | 每次运行只读取一个 hqdata 已落盘数据源的 CSV 快照；`data_root` 默认 `~/.hqdata`，`source` 选择其下的子目录。门户直接只读稳定的 CSV 布局，不导入 `hqdata`、不接触底层 SDK、不访问网络。日线首选 Tushare 或 RiceQuant 的本地 CSV。 |
+| 数据边界 | 每次运行只读取一个 hqdata 已落盘数据源的 CSV 快照；`data_root` 默认 `~/.hqdata`，`source` 选择其下的子目录。门户通过 `hqdata.api.get_*` 调用统一的 `CsvSource` 读取稳定布局的 CSV —— CSV 列映射、文件存在性与列名校验由 hqdata 负责，回测侧只把 DataFrame 转 `Bar/Factor`。hqbacktest 不导入 `hqdata.sources` 或任一数据源 SDK、不在回测运行时访问网络。日线首选 Tushare 或 RiceQuant 的本地 CSV。 |
 | 时间语义 | `before_trading_start(D)` 只能看到 D-1 及以前的数据，可提交在 D 开盘撮合的订单；`on_bar(D)` 在 D 收盘后看到 D 日线，订单最早在 D+1 开盘撮合。 |
 | 初始订单 | 首版只支持市价委托；默认按符合交易条件的开盘价全额成交。限价单、分笔、成交量参与率、盘中撮合均属后续能力。 |
 | 数据可见性 | 策略读取数据必须经过带 `visible_through` 截止日的 `DataView`；任何未来数据访问必须抛错。 |
@@ -137,6 +137,7 @@
 - `data portal` 只暴露协议化的 `MarketDataPortal`；`HqDataCsvPortal` 是默认实现，只读取 hqdata CLI 已落盘 CSV，禁止导入 `hqdata`、`hqdata.sources` 或任一数据源 SDK。
 - `data portal` 通过 `data_root` 与 `source` 解析数据集根目录。v0.1 的固定布局为 `{root}/{source}/calendar.csv`，以及 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv`、`stock_factor/{YYYYMMDD}.csv`；任何缺失、不可读或格式不符的文件必须报错，不得联网回补。
 - hqdata CSV 快照是叶子数据边界；更新数据只能在回测运行前通过 hqdata CLI 完成。
+- 回测侧通过 `hqdata.api` 读取 CSV；任何自定义源（替代 `CsvSource`）必须保持同等的列名契约与缺失语义，否则替换需要回到本节同步调整。
 
 ### 3.3 数据可见性与缺行语义
 
@@ -260,6 +261,7 @@
 | 2026-08-17 | 修正盘前订单的同日开盘撮合语义；明确收盘估值、结束订单、股票池资格与异常分类；v0.1 仅支持 `AdjustmentPolicy=none` | hqbacktest 维护者 |
 | 2026-08-23 | 公司行为扩展设计门槛落地——`adjustment_policy` 严格只接受 `"none"`；`CorporateActionProvider` 列为设计草案并锁定 10 个权威字段；`factor_diagnostics` 字段已就位；因子诊断接口存在但 v0.1 不启用 | hqbacktest 维护者 |
 | 2026-08-23 | 修正回测运行时数据边界：`hqbacktest` 直接只读 hqdata CLI 落盘 CSV；`data_root` 默认 `~/.hqdata`，不调用 `hqdata.api` 或网络数据源 | hqbacktest 维护者 |
+| 2026-08-26 | 改造数据层契约：hqbacktest 改为通过 `hqdata.api` 的 `csv` source 读取 snapshot（不再直读 CSV），DataFrame → Bar/Factor 转换与双层缓存在 hqbacktest 侧；新增 `hqdata.errors.SnapshotFileMissingError` 透传路径；Calendar 缺失返回空（对齐 tushare）。CSV 列名校验全部移交 `hqdata.sources.csv_source` | hqbacktest 维护者 |
 | 2026-08-23 | 重构数据门户：`HqDataPortal` 替换为 `HqDataCsvPortal`，固定布局 `{data_root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`；`source` 名称或绝对路径均可，`CacheKey` 加入 `data_root` 防跨目录串扰 | hqbacktest 维护者 |
 | 2026-08-24 | 数据层缺行/停牌/首日语义：钉死 `get_bars` 允许间隙、引入 `SnapshotFileMissingError` 区分整日文件缺失与个股缺行、`current_price` 回看 20 交易日最近有效收盘价、首日哨兵日期不抛异常、删除 `InMemoryDataPortal.get_universe` 向前回退、补双门户 parity 测试、缓存返回防御性拷贝、`.BJ` 股票默认过滤、`Bar.volume` 单位标注为「手」 | hqbacktest 维护者 |
 | 2026-08-24 | 撮合与账本语义：同批撮合 SELL 先于 BUY（滚动现金）、SELL 不整手取整、`Fill.BUY` 携带非零 stamp_tax 报错、`Order.record_fill` 移除不可达 `ACCEPTED` 分支、`intents.target_quantity_for_value(0)` 按 docstring 返回 0、CLI `initial_cash` 拒绝 float 与引擎对齐、`realized_pnl` 不含费用；登记 §3.4 撮合口径表 | hqbacktest 维护者 |
