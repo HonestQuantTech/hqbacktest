@@ -48,7 +48,7 @@ def test_strategy_cannot_access_raw_portal_by_public_name():
         view.portal
 ```
 
-代码位置：`src/hqbacktest/data/view.py`、测试 `tests/engine/test_isolation.py`。
+代码位置：`src/hqbacktest/data/data_view.py`、测试 `tests/engine/test_isolation.py`。
 
 ## 3. Universe 生效
 

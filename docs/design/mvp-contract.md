@@ -134,8 +134,8 @@
 - `strategy` 只能依赖 `engine/context` 暴露的 `Context`、`DataView` 与生命周期回调；不得导入 `hqdata.*`、不得持有 `MarketDataPortal` 的原始实现。
 - `engine` 编排 `MarketDataPortal`、`DataView`、`broker`、`portfolio` 与策略生命周期；它通过 `MarketDataPortal` 读取交易日历，并向 `broker` 提供窄化的撮合行情接口。
 - `broker/portfolio` 只能由 `engine` 驱动；不得反向调用策略或回写 `Context`。`broker` 不负责日历迭代或策略调度。
-- `data portal` 只暴露协议化的 `MarketDataPortal`；`HqDataCsvPortal` 是默认实现，只读取 hqdata CLI 已落盘 CSV，禁止导入 `hqdata`、`hqdata.sources` 或任一数据源 SDK。
-- `data portal` 通过 `data_root` 与 `source` 解析数据集根目录。v0.1 的固定布局为 `{root}/{source}/calendar.csv`，以及 `stock_list/{YYYYMMDD}.csv`、`stock_daily/{YYYYMMDD}.csv`、`stock_factor/{YYYYMMDD}.csv`；任何缺失、不可读或格式不符的文件必须报错，不得联网回补。
+- `data portal` 只暴露协议化的 `MarketDataPortal`；`HqDataCsvPortal` 是默认实现，通过 `hqdata.api` 的 `csv` source 读取 hqdata CLI 已落盘的 CSV（详见 §3.1）。portal 不得导入 `hqdata.sources` / 任一数据源 SDK；不重新实现 CSV 列映射。CSV 列名校验、缺失文件异常、数据来源的「整日」边界均由 hqdata 端负责。
+- `data portal` 通过 `data_root` 与 `source` 解析数据集根目录，**传给 `hqdata.init_source("csv", root=...)`**，由 hqdata 端解析布局（v0.1 固定为 `{root}/{source}/calendar.csv` + `stock_list|stock_daily|stock_factor/{YYYYMMDD}.csv`）；任何缺失、不可读或格式不符的文件由 hqdata 抛出 `SnapshotFileMissingError` / `InvalidDataError`，portal 透传。
 - hqdata CSV 快照是叶子数据边界；更新数据只能在回测运行前通过 hqdata CLI 完成。
 - 回测侧通过 `hqdata.api` 读取 CSV；任何自定义源（替代 `CsvSource`）必须保持同等的列名契约与缺失语义，否则替换需要回到本节同步调整。
 
@@ -272,3 +272,4 @@
 | 2026-08-25 | `source` 绝对路径支持（拆为 `data_root` + 名称）；`run_metadata.json` 中 `config_path` / `output_directory` / `config_output_directory` 写入相对路径（`os.path.relpath`）；`validate_yyyymmdd` 用 `datetime.strptime` 拒绝假日期（保留 `"00000000"` 哨兵）；性能夹具生成器改用 `datetime` 迭代；`test_console_script_runs_end_to_end` 改名 `test_python_m_runs_end_to_end` 并补一个真正测 console script 的同名测试；README「26 项 CLI 测试」改为「见 tests/cli/」；`pyproject.toml` 删除过时的「no runtime deps yet」注释 | hqbacktest 维护者 |
 | 2026-08-25 | 波动率/夏普首日采样缺口修复：`metrics.compute_metrics` 不再从 `total_equity` 重新推导日收益（旧零种子会丢首日真实收益），改为直接读 `engine` 写好的 `EquityPoint.daily_return`；删除死代码 `_drawdown_series`；新增手算回归（2 日 -9% / +5.5%，`daily_volatility` ≈ 0.10253）。波动率 / Sharpe 与 `max_drawdown` 对首日盈亏的可见性现在一致 | hqbacktest 维护者 |
 | 2026-08-25 | 数据层测试覆盖补齐与文档措辞澄清：6 项 `get_factor` 双门户逐值一致性断言；§3.3 删除不存在的 `get_bar(symbol, date)` 引用；`DataView.portal` 措辞改为准确表述（下划线是约定私有，不是 Python 语言级强制力）；哨兵常量 `"00000000"` 收敛到 `data.validators.SENTINEL_NO_HISTORY` 一处；`test_version_matches_pyproject` 强化版本号形态校验 | hqbacktest 维护者 |
+| 2026-08-26 | §5 边界规则表述同步至 v0.1.* 改造：`data portal` 现在通过 `hqdata.api` 的 `csv` source 读取 snapshot；上一条 8-26 修订的 CSV 列名校验移交 `hqdata.sources.csv_source` 在 §5 重述；并补 docs/strategy-api.md 中 `data_view.py` 路径修正 | hqbacktest 维护者 |
