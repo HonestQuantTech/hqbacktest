@@ -3,36 +3,17 @@
 <p align="center">
     <img src="https://img.shields.io/badge/status-v0.1.4-blue"/>
     <img src="https://img.shields.io/badge/hqdata-%3E%3D0.1.22-blue"/>
-    <img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue"/>
+    <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue"/>
 </p>
 
 `hqbacktest` 是 HonestQuant 量化系统的**策略回测与交易模拟层**，面向 A 股日线策略。它给量化研究者一个**确定性的、可复现的、与实盘严格隔离**的回测沙盒：策略只通过受控的 `Context` / `DataView` 读写数据、提交订单和查询组合，不接触数据源实现或内部账本；引擎负责时钟、撮合、规则与成本、指标和可审计的结果导出。
 
 ## 定位
 
-- **对下：** 通过 `hqdata.api` 的 `csv` source 读取 `hqdata` CLI 已落盘的 CSV 快照（默认 `~/.hqdata/{source}/`）；不调用任何数据源 SDK、也不在回测运行时访问网络。
+- **对下：** 通过 `hqdata.api` 的 `csv` source 读取 `hqdata` CLI 已落盘的 CSV 快照；不调用任何数据源 SDK、也不在回测运行时访问网络。
 - **对中：** 提供严格的交易日事件时钟、数据可见性控制、订单生命周期、虚拟经纪商、持仓账本和交易规则。
 - **对上：** 让策略只通过 `Context` / `DataView` 读取数据、提交订单和查询组合，不接触数据源实现或修改内部账本。
 - **对外：** 输出可复现的净值、订单、成交、持仓、费用和绩效指标，用于研究和模拟，不连接真实券商。
-
-## 已实现的能力
-
-| 功能 | 目标接口 / 产物 | 首版语义 |
-| --- | --- | --- |
-| 日频事件时钟 | `BacktestEngine` | 五阶段固定顺序 `SESSION_START → BEFORE_TRADING_START → OPEN_MATCH → BAR_CLOSE → AFTER_TRADING_END`；盘前 D-1、收盘 D 的可见性切换；事件日志记录日期与阶段 |
-| 交易日与历史股票池 | `MarketDataPortal` | 按回测日获取交易日和股票池，避免以今日股票列表产生幸存者偏差；`.BJ` 默认过滤，`include_bj=True` 保留 |
-| 日线数据可见性 | `DataView.history()` | 盘前最多看到前一交易日；当天收盘后才可读取当天日线；首日盘前哨兵 `visible_through="00000000"` 不抛异常 |
-| 缺行 / 停牌 / 估值口径 | `get_bars` / `DataView.current_price` / 日终估值 | `get_bars` 允许逐日间隙；停牌持仓按 20 日回看最近收盘估值并写 `DATA_WARNING`；整日快照缺失 → `SnapshotFileMissingError`；`Bar.volume` 单位「手」 |
-| 策略生命周期 | `BaseStrategy`、`Context` | `initialize` / `before_trading_start` / `on_bar` / `after_trading_end` 四回调；只读 `Context` 暴露 `cash` / `positions` / `universe` / `pending_orders` / `history` / `current_price` / `total_equity`；下单意图 `order` / `order_value` / `order_target` / `order_target_value` / `order_target_percent` / `cancel_order` |
-| 下单与撤单 | `Context.order_*()` | 首版只支持市价委托，仅盘前与收盘回调可下单；订单创建 / 撤销写入事件日志 |
-| 虚拟撮合与账本 | `SimulatedBroker`、`Portfolio` | 盘前订单按当日开盘价撮合；收盘订单最早次日开盘成交；同批 SELL 先于 BUY；回测结束时未成交订单 `BACKTEST_ENDED` 撤销 |
-| A 股基础规则 | `TradingRuleSet`、`CostModel` | 买入整手（卖出允许零股）、T+1、停牌 / 无价拒绝、现货多头、显式费率（佣金 0.025% + 5 元保底、印花税 0.1% 卖出） |
-| 公司行为扩展 | `CorporateActionProvider`、`AdjustmentPolicy` | v0.1 仅 `adjustment_policy="none"`；`CorporateActionProvider` 是设计草案；因子诊断接口存在但默认不启用自动诊断 |
-| 端到端示例 | `examples/buy_and_hold.py`、`examples/moving_average.py` | 仅用公共 API + 7 天 `InMemoryDataPortal` 确定性数据；`tests/examples/` 覆盖买-持、均线、T+1、费用、净值与指标 |
-| 结果与分析 | `BacktestResult` | 净值曲线、订单 / 成交 / 持仓 / 费用 CSV + `summary.json` + `events.jsonl`；`PerformanceMetrics` 含累计 / 年化 / 波动 / 夏普 / 最大回撤 / 换手 / 胜率 |
-| 配置与命令行 | `hqbacktest run` | TOML 配置 + 校验 + 策略导入 + 独立输出目录；`run_metadata.json` 不含凭证 / 完整环境；本地绝对路径脱敏为相对 cwd 路径 |
-
-> 「已实现」与「不做」的完整边界见 [`docs/design/mvp-contract.md`](docs/design/mvp-contract.md)。模块级细节见 [`docs/`](.) 下的专题文档。
 
 ## 支持的数据源
 
@@ -41,7 +22,7 @@
 | 真实日线 | `hqdata` CLI 落盘的 CSV 快照（`tushare` / `ricequant`）通过 [`HqDataCsvPortal`](src/hqbacktest/data/hqdata_portal.py) 读取 | 任何需要真实行情的回测 |
 | 内存 fixture | `InMemoryDataPortal` | 单元测试、示例、`tests/examples/` 端到端 fixture |
 
-`HqDataCsvPortal` 在构造时把 snapshot 路径传给 `hqdata.init_source("csv", root=...)`，所有 CSV 解析由 `hqdata.sources.csv_source.CsvSource` 负责（列名校验、文件存在性、整日缺失抛 `SnapshotFileMissingError`）。具体列名、缺失语义见 [`hqdata` README §本地 CSV 数据源](https://github.com/HonestQuantTech/hqdata)。
+`HqDataCsvPortal` 在构造时把 snapshot 路径传给 `hqdata.init_source("csv", root=...)`，所有 CSV 解析由 `hqdata.sources.csv_source.CsvSource` 负责（列名校验、文件存在性、整日缺失抛 `SnapshotFileMissingError`）。
 
 `hqdata` 当前 `akshare` 适配器不稳定，按其官方说明**不**作为本项目首选数据源。需要日线请使用 `tushare` 或 `ricequant`；具体数据下载与落盘见 [`hqdata` README](https://github.com/HonestQuantTech/hqdata)。
 
@@ -84,18 +65,19 @@ pip install -e "../hqdata"
 pip install -e ".[dev]"
 ```
 
-`pyproject.toml` 声明的 Python 目标版本为 3.10 / 3.11 / 3.12。
+`pyproject.toml` 声明的 Python 下限为 `>=3.10`（与 `hqdata` 一致）。
 
 ## 配置数据源
 
-`hqbacktest` 不接触任何数据源 token，回测配置通过 `data_root` + `source` 定位 `hqdata` 已落盘的 CSV。
+`hqbacktest` 不接触任何数据源 token，也不在回测运行时联网。回测侧只声明 `source`（数据源名或绝对路径）与 `data_root`（父目录），`hqbacktest` 内部把它们解析成 hqdata 要求的 `(root, source_name)` 并交给 [`hqdata.init_source("csv", root=..., source_name=...)`](https://github.com/HonestQuantTech/hqdata)。
 
 | 写法 | 含义 |
 | --- | --- |
-| `data_root="~/.hqdata"`, `source="tushare"` | 使用 `~/.hqdata/tushare` |
-| `data_root="/mnt/market-data"`, `source="ricequant"` | 使用 `/mnt/market-data/ricequant` |
+| `data_root="~/.hqdata"`, `source="tushare"` | 解析为 `(~/.hqdata, tushare)`，传给 hqdata 的 `root=~/.hqdata/tushare`、`source_name="tushare"` |
+| `data_root="/mnt/market-data"`, `source="ricequant"` | 解析为 `(/mnt/market-data, ricequant)` |
+| `source="~/.hqdata/tushare"`（绝对路径） | 直接拆分 `(parent_dir, basename)`，忽略 `data_root` |
 
-`source` 接受名称或绝对路径，底层 CSV 布局由 `hqdata` CLI 在回测前写入；`hqbacktest` 既不下载数据，也不保存凭证。
+`source` 接受**名称**（搭配 `data_root`）或**绝对路径**（拆分）。底层 CSV 布局由 `hqdata` CLI 在回测前写入；`hqbacktest` 既不下载数据，也不保存凭证。
 
 ## 使用
 
