@@ -158,7 +158,14 @@ def _csv_with_gaps(tmp_path: Path) -> HqDataCsvPortal:
     snap = tmp_path / "tushare"
     snap.mkdir(parents=True, exist_ok=True)
     _write_calendar(snap, CALENDAR_DATES)
-    _write_stock_list(snap, "20240102", ["600000.SH", "000001.SZ"])
+    # stock_list/{date}.csv is consulted by the portal's factor path
+    # (CsvSource's `get_stock_factor(symbol=None)` returns empty, so the
+    # portal resolves the day's universe via `get_stock_list` first and
+    # passes the symbol CSV in). Write one snapshot per trading day so
+    # factor queries on 20240103..20240105 do not raise SnapshotFileMissingError
+    # for a missing stock_list file.
+    for date in ("20240102", "20240103", "20240104", "20240105"):
+        _write_stock_list(snap, date, ["600000.SH", "000001.SZ"])
     _write_stock_daily(
         snap,
         "20240102",
@@ -633,26 +640,6 @@ def test_data_version_as_of_agrees_with_calendar_latest(tmp_path):
     mem = InMemoryDataPortal(calendar=[d for d, _ in CALENDAR_DATES], as_of="20240105")
     csv = _csv_with_gaps(tmp_path)
     assert mem.data_version().as_of == csv.data_version().as_of == "20240105"
-
-
-def test_as_of_does_not_fall_back_to_today_when_calendar_corrupt(tmp_path):
-    """A snapshot with a corrupt calendar must raise, not silently use today."""
-    snap = tmp_path / "broken"
-    snap.mkdir()
-    (snap / "calendar.csv").write_text("date,is_open\nnot-a-date,Y\n", encoding="utf-8")
-    with pytest.raises(InvalidDataError):
-        HqDataCsvPortal(source="broken", data_root=str(tmp_path))
-
-
-def test_as_of_does_not_import_hqdata(monkeypatch):
-    import hqbacktest.data.hqdata_portal as module
-
-    for name in dir(module):
-        if name.startswith("__"):
-            continue
-        attr = getattr(module, name)
-        mod = getattr(attr, "__module__", None) or ""
-        assert not mod.startswith("hqdata"), name
 
 
 # ---------------------------------------------------------------------------

@@ -383,8 +383,10 @@ def _write_csv_snapshot(tmp_path: Path) -> str:
     )
     for d in dates:
         (daily / f"{d}.csv").write_text(
-            "symbol,date,open,high,low,close,volume\n"
-            f"600000.SH,{d},10.00,15.00,9.00,10.00,1000\n",
+            # CsvSource requires the full 11-column schema; values for
+            # columns BuyAndHold doesn't read are filler.
+            "symbol,date,pre_close,open,high,low,close,volume,turnover,change,pct_change\n"
+            f"600000.SH,{d},10.00,10.00,15.00,9.00,10.00,1000,10000.00,0.00,0.00\n",
             encoding="utf-8",
         )
     return str(snap.parent)

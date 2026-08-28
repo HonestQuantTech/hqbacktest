@@ -87,7 +87,7 @@
 | `after_trading_end(D)` | `D` | `[..., D]` | 截至 D 最近有效 close | 越界抛错 |
 | 首个交易日盘前 | `"00000000"` 哨兵 | `[]` | `None`（不抛异常） | — |
 
-**任何未来数据访问必须抛错**，不得返回空值、最后已知值或插值结果。代码位置：`src/hqbacktest/data/view.py::history / current_price / universe`。
+**任何未来数据访问必须抛错**，不得返回空值、最后已知值或插值结果。代码位置：`src/hqbacktest/data/data_view.py::history / current_price / universe`。
 
 ## 5. 示例：最小策略
 

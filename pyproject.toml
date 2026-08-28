@@ -12,6 +12,21 @@ authors = [
 ]
 requires-python = ">=3.10"
 license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+]
 keywords = [
   "hqbacktest",
   "quant",
@@ -26,6 +41,10 @@ keywords = [
 dependencies = [
   "pandas>=2.0.0",
   "tomli>=2.0",
+  # hqbacktest reads CSV snapshots exclusively via the hqdata API.
+  # `pip install -e "../hqdata"` before installing hqbacktest, or rely
+  # on an editable install of hqdata that satisfies the dependency.
+  "hqdata>=0.1.22",
 ]
 
 [project.scripts]
@@ -66,7 +85,18 @@ markers = [
 
 [tool.black]
 line-length = 88
-target-version = ["py310", "py311", "py312"]
+# Black target-version mirrors the package's runtime floor
+# (`requires-python = ">=3.10"`); newer versions are unaffected because
+# black auto-applies its PEP-level rules across supported Pythons.
+target-version = ["py310"]
+# pyproject.toml and README.md are not Python sources; black tries to
+# parse them and fails on the TOML author table / HTML badges. Skip them.
+extend-exclude = '''
+/(
+    \.toml
+    | README\.md
+)/
+'''
 
 [tool.coverage.run]
 branch = true
