@@ -1,5 +1,7 @@
 """hqbacktest - A-share quantitative strategy backtest and trading simulation engine."""
 
+from importlib.metadata import version
+
 from hqbacktest.data import (
     CacheKey,
     DataCache,
@@ -51,7 +53,7 @@ from hqbacktest.engine import (
     TradingRuleSet,
 )
 
-__version__ = "0.1.4"
+__version__ = version("hqbacktest")
 
 __all__ = [
     "__version__",
