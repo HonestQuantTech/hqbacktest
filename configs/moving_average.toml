@@ -1,0 +1,26 @@
+# Example config for `hqbacktest run` using the `examples.moving_average`
+# strategy against a real hqdata CSV snapshot.
+#
+# The date range below assumes you already have a `tushare` snapshot under
+# `~/.hqdata/tushare` covering 20260123-20260212 (fetch it first with the
+# `hqdata` CLI, see README "配置数据源"). If your snapshot covers a
+# different range, change `start_date` / `end_date` accordingly -- they
+# must fall within calendar.csv's trading days AND have stock_daily /
+# stock_list / stock_factor CSVs on disk for every day in range.
+
+[start]
+start_date = "20260123"        # first trading day with data in your snapshot
+end_date   = "20260212"        # last trading day with data in your snapshot
+
+[capital]
+initial_cash = "100000"
+
+[data]
+source = "tushare"             # or "ricequant"; must match a snapshot under data_root
+data_root = "~/.hqdata"
+
+[strategy]
+module = "examples.moving_average"
+
+[output]
+directory = "results/moving-average"

@@ -12,6 +12,8 @@ hqbacktest run --config configs/moving_average.toml --output results/moving-aver
 python -m hqbacktest run --config configs/moving_average.toml --output results/moving-average
 ```
 
+`configs/moving_average.toml` 是仓库自带的示例配置，但 `hqbacktest` 不下载数据——运行前需要本地已有一份覆盖该日期区间的 `hqdata` CSV 快照（`hqdata` CLI 抓取步骤见 README「配置数据源」一节），否则会以退出码 2 报 `SnapshotFileMissingError`。
+
 ### 1.1 策略模块解析
 
 `hqbacktest run` 把 config 文件所在目录和当前工作目录加入 `sys.path`，让 `[strategy].module = "my_strategy"` 这类**不带点号的写法**可以直接 `import` 成功，行为与 `python -m hqbacktest run` 一致。

@@ -1,7 +1,8 @@
 # hqbacktest - A股量化策略回测与交易模拟引擎
 
 <p align="center">
-    <img src="https://img.shields.io/badge/status-v0.1.4-blue"/>
+    <img src="https://img.shields.io/pypi/v/hqbacktest.svg"/>
+    <img src="https://img.shields.io/pypi/pyversions/hqbacktest.svg"/>
     <img src="https://img.shields.io/badge/hqdata-%3E%3D0.1.22-blue"/>
     <img src="https://img.shields.io/badge/python-%3E%3D3.10-blue"/>
 </p>
@@ -112,6 +113,17 @@ result.save("results/moving-average")
 ```
 
 命令行（推荐用于 CI 与可复现实验）：
+
+`hqbacktest` 不下载数据，命令行示例需要你本地已有一份 `hqdata` CSV 快照。先用 `hqdata` CLI 抓一段真实日线（换成你自己的 tushare/ricequant token 和日期区间）：
+
+```bash
+hqdata --source tushare calendar --start 20260123 --end 20260212
+hqdata --source tushare stock-list --start 20260123 --end 20260212
+hqdata --source tushare stock-daily --start 20260123 --end 20260212
+hqdata --source tushare stock-factor --start 20260123 --end 20260212
+```
+
+再跑仓库自带的 [`configs/moving_average.toml`](configs/moving_average.toml)（日期区间需要和你抓取的快照区间对上）：
 
 ```bash
 hqbacktest run --config configs/moving_average.toml --output results/moving-average
