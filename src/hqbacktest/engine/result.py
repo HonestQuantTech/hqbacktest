@@ -6,8 +6,8 @@ Tasks 5 / 7 / 9 / 10 progressively add fields. v0.1 includes:
     * `trading_days`           - dates actually iterated.
     * `adjustment_policy`      - the policy that was applied (always "none"
                                  in v0.1; recorded for the audit trail).
-    * `factor_diagnostics`     - factor-quality observations; empty in v0.1
-                                 because factor_total_return is disabled.
+    * `factor_diagnostics`     - holding-period factor-quality observations;
+                                 diagnostic-only under the v0.1 ``none`` policy.
     * `equity_curve`           - per-day `EquityPoint` snapshot.
     * `orders_table`           - one row per order.
     * `fills_table`            - one row per fill.

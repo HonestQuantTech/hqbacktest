@@ -8,10 +8,10 @@ v0.1 status:
       does not depend on it in v0.1; the field list below documents
       what an implementation MUST provide before any accounting entry
       is written.
-    * `FactorDiagnostic` records cross-source / missing / non-positive /
-      abnormal-jump observations; the engine emits a single "policy=none"
-      marker at run start. The diagnostic collection becomes active
-      when `factor_total_return` is enabled (not in v0.1).
+        * `FactorDiagnostic` records cross-source / missing / non-positive /
+            abnormal-jump observations. Under the v0.1 ``none`` policy, the
+            engine actively records holding-period factor jumps as diagnostics
+            only; it never changes the ledger from factor data.
 """
 
 from dataclasses import dataclass
@@ -131,7 +131,7 @@ class CorporateActionProvider(Protocol):
 
 
 # --------------------------------------------------------------------- #
-# Factor diagnostics (active when AdjustmentPolicy != "none")
+# Factor diagnostics (pure analyzer plus v0.1 holding-period observations)
 # --------------------------------------------------------------------- #
 
 #: All diagnostic kinds the analyzer can emit.
@@ -264,11 +264,11 @@ def analyze_factor_series(
 class FactorDiagnosticCollector:
     """Append-only collector for `FactorDiagnostic` records.
 
-    v0.1 keeps this dormant (the engine records a single "policy=none"
-    marker; no factor data is read). When `factor_total_return` is
-    enabled in a future task, this collector becomes the audit-trail
-    destination for cross-source / missing / non-positive / abnormal-
-    jump observations and the engine surfaces them in `BacktestResult`.
+    The engine uses this collector for holding-period factor diagnostics in
+    v0.1. It remains observation-only: a diagnostic never changes cash,
+    positions, cost basis, or equity. A future total-return policy may add
+    more accounting-aware observations only after its admission criteria are
+    met.
     """
 
     def __init__(self) -> None:

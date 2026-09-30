@@ -1,6 +1,8 @@
 """End-to-end + save/load tests for `BacktestResult`."""
 
+import csv
 import json
+import re
 from decimal import Decimal
 from pathlib import Path
 
@@ -17,7 +19,14 @@ from hqbacktest.domain.order import Order
 from hqbacktest.engine.config import BacktestConfig
 from hqbacktest.engine.engine import BacktestEngine
 from hqbacktest.engine.metrics import MetricsConfig
-from hqbacktest.engine.result import BacktestResult
+from hqbacktest.engine.result import (
+    BacktestResult,
+    _COSTS_COLUMNS,
+    _EQUITY_COLUMNS,
+    _FILLS_COLUMNS,
+    _ORDERS_COLUMNS,
+    _POSITIONS_COLUMNS,
+)
 from hqbacktest.engine.strategy import BaseStrategy
 
 
@@ -54,6 +63,27 @@ def _config(
     )
     base.update(overrides)
     return BacktestConfig(**base)
+
+
+def _documented_csv_columns(filename: str) -> list[str]:
+    """Return the column names documented for one result CSV file.
+
+    The implementation constants in ``engine.result`` are the source of
+    truth. This parser keeps the user-facing schema tables in ``docs/output``
+    aligned with those constants without duplicating column names in the test.
+    """
+    output_doc = Path(__file__).resolve().parents[2] / "docs" / "output.md"
+    text = output_doc.read_text(encoding="utf-8")
+    heading = re.search(
+        rf"^### 2\.\d+ `{re.escape(filename)}`\s*$",
+        text,
+        flags=re.MULTILINE,
+    )
+    assert heading is not None, f"missing schema section for {filename}"
+    remainder = text[heading.end() :]
+    next_heading = re.search(r"^#{1,3} ", remainder, flags=re.MULTILINE)
+    section = remainder[: next_heading.start()] if next_heading else remainder
+    return re.findall(r"^\| `([^`]+)` \|", section, flags=re.MULTILINE)
 
 
 # --------------------------------------------------------------------- #
@@ -243,6 +273,34 @@ def test_result_save_writes_csv_and_json(tmp_path):
     assert "date,cash,market_value,total_equity,daily_return,drawdown" in eq_text
     # Two trading days -> 2 rows in equity curve.
     assert sum(1 for _ in eq_text.splitlines() if _ and not _.startswith("date")) == 2
+
+
+def test_result_csv_headers_and_documentation_share_one_schema(tmp_path):
+    """Serializer headers and `docs/output.md` must follow result constants."""
+
+    class Null(BaseStrategy):
+        def initialize(self, context):
+            pass
+
+    result = BacktestEngine(
+        _config("20240102", "20240102"),
+        strategy=Null(),
+        portal=_portal(["20240102"]),
+    ).run()
+    output_dir = tmp_path / "result"
+    result.save(str(output_dir))
+
+    schemas = {
+        "equity_curve.csv": _EQUITY_COLUMNS,
+        "orders.csv": _ORDERS_COLUMNS,
+        "fills.csv": _FILLS_COLUMNS,
+        "positions.csv": _POSITIONS_COLUMNS,
+        "costs.csv": _COSTS_COLUMNS,
+    }
+    for filename, expected in schemas.items():
+        with (output_dir / filename).open(encoding="utf-8", newline="") as fh:
+            assert next(csv.reader(fh)) == list(expected)
+        assert _documented_csv_columns(filename) == list(expected)
 
 
 def test_result_load_preserves_order_and_fill_identifiers(tmp_path):

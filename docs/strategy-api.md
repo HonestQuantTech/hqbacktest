@@ -48,11 +48,12 @@
 
 | 方法 | 返回 | 说明 |
 | --- | --- | --- |
-| `cash` | `Decimal` | 当前现金（不含当日冻结待扣） |
-| `positions` | `dict[symbol, Position]` | 持仓快照（D+1 起始可卖数） |
-| `total_equity` | `Decimal` | 现金 + 持仓市值 |
-| `universe` | `list[str]` | `set_universe(...)` 声明的股票池；未设时返回空列表 |
-| `historical_universe` | `list[str]` | `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束；不暴露原 portal |
+| `cash()` | `Decimal` | 当前现金（不含当日冻结待扣）。 |
+| `positions()` | `dict[str, Position]` | 持仓快照（D+1 起始可卖数）。 |
+| `position(symbol)` | `Position \| None` | 单个持仓快照；无持仓时返回 `None`。 |
+| `total_equity()` | `Decimal` | 现金加当前可见价格下的持仓市值。 |
+| `universe()` | `list[str]` | `set_universe(...)` 声明的股票池；未设时返回空列表。 |
+| `historical_universe()` | `list[str]` | `visible_through` 当日的 portal 股票池（默认排除 `.BJ`），受可见性约束；不暴露原 portal。 |
 | `pending_orders()` | `list[Order]` | 所有未终止订单的副本（含 `PENDING` / `ACCEPTED`） |
 | `current_price(symbol)` | `Decimal \| None` | 截至 `visible_through` 的最近有效收盘价；首日哨兵返回 `None`，无价返回 `None` |
 
@@ -71,9 +72,9 @@
 
 ### 3.3 不可改写
 
-- 任何对 `context._portfolio` / `context._broker` 等私有字段的访问必须抛错。
-- `Context` 是接口，`__setattr__` 对外暴露属性受校验。
-- 见 [`docs/isolation.md`](isolation.md) §6。
+- `Context` 只对外暴露受控查询与下单方法；策略不应访问 `_portfolio`、`_data_view` 等下划线私有属性。
+- `current_date`、`phase` 和 `visible_through` 是只读属性；赋值会抛 `AttributeError`。
+- Python 的下划线是约定私有，不是语言级安全边界；审计依赖公共 API、代码审查和测试。见 [isolation.md](isolation.md) §6。
 
 ## 4. `DataView` 可见性矩阵
 
@@ -81,7 +82,7 @@
 
 | 回调 | `visible_through` | `history()` 范围 | `current_price()` | 越界行为 |
 | --- | --- | --- | --- | --- |
-| `initialize` | 无（无逐日行情可读） | 调用即报错 | 调用即报错 | 抛 `DataViewError` |
+| `initialize` | 无（无逐日行情可读） | 经 `Context.history()` 调用即报错 | 经 `Context.current_price()` 调用即报错 | 抛 `StrategyLifecycleError` |
 | `before_trading_start(D)` | `D - 1` | `[..., D-1]` | 截至 D-1 最近有效 close | 越界抛错 |
 | `on_bar(D)` | `D` | `[..., D]`，含 D 日线 | 截至 D 最近有效 close | 越界抛错 |
 | `after_trading_end(D)` | `D` | `[..., D]` | 截至 D 最近有效 close | 越界抛错 |
@@ -126,9 +127,8 @@ class MovingAverageStrategy(BaseStrategy):
 
 | 测试 | 文件 |
 | --- | --- |
-| 时序 + 数据可见性矩阵 | `tests/engine/test_lifecycle.py` |
-| `initialize` 中调用 `data.history` 抛错 | `tests/engine/test_lifecycle.py::test_initialize_blocks_history` |
-| `initialize` 中调用 `context.order` 抛错 | `tests/engine/test_lifecycle.py::test_initialize_blocks_order` |
-| `on_bar` 在 `BAR_CLOSE` 后看到 D 日线 | `tests/engine/test_lifecycle.py::test_on_bar_sees_day_data` |
-| `after_trading_end` 不可下单 | `tests/engine/test_lifecycle.py::test_after_trading_end_blocks_order` |
-| 首日哨兵 `visible_through="00000000"` 不抛异常 | `tests/data/test_sentinel_first_day.py` |
+| 时序 + 数据可见性矩阵 | [test_engine.py](../tests/engine/test_engine.py) 的 `test_engine_visible_through_per_phase_matches_contract` |
+| `initialize` 中读取数据或下单失败 | [test_engine.py](../tests/engine/test_engine.py) 的 `test_engine_rejects_order_and_data_from_initialize` |
+| `on_bar` 在 `BAR_CLOSE` 后看到 D 日线 | [test_engine.py](../tests/engine/test_engine.py) 的 `test_engine_bar_close_can_read_today_close` |
+| `after_trading_end` 不可下单 | [test_engine.py](../tests/engine/test_engine.py) 的 `test_engine_rejects_order_from_after_trading_end` |
+| 首日哨兵 `visible_through="00000000"` 不抛异常 | [test_engine.py](../tests/engine/test_engine.py) 的 `test_engine_before_trading_start_cannot_read_future` |

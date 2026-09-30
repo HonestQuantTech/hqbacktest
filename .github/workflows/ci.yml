@@ -46,13 +46,20 @@ jobs:
 
       - name: Run CLI smoke
         run: |
-          # Hermetic CSV snapshot so the CLI run needs no ~/.hqdata.
-          mkdir -p /tmp/ci-data/tushare/stock_daily
+          # Hermetic, complete hqdata CSV snapshot so the CLI run needs no
+          # network access or ~/.hqdata. Keep every per-day file aligned
+          # with hqdata.sources.csv_source.CsvSource's required schema.
+          rm -rf /tmp/ci-data /tmp/hqbacktest-ci-out
+          mkdir -p /tmp/ci-data/tushare/{stock_list,stock_daily,stock_factor}
           printf 'date,is_open\n20240102,Y\n20240103,Y\n20240104,Y\n' \
             > /tmp/ci-data/tushare/calendar.csv
           for d in 20240102 20240103 20240104; do
-            printf 'symbol,date,open,high,low,close,volume\n600000.SH,%s,10.00,15.00,9.00,10.00,1000\n' "$d" \
+            printf 'symbol,date,name,exchange,board,curr_type,list_date,delist_date\n600000.SH,%s,CI Fixture,SSE,MB,CNY,19990101,\n' "$d" \
+              > "/tmp/ci-data/tushare/stock_list/$d.csv"
+            printf 'symbol,date,pre_close,open,high,low,close,volume,turnover,change,pct_change\n600000.SH,%s,9.90,10.00,15.00,9.00,10.00,1000,1000000,0.10,1.01\n' "$d" \
               > "/tmp/ci-data/tushare/stock_daily/$d.csv"
+            printf 'symbol,date,factor\n600000.SH,%s,1.0000\n' "$d" \
+              > "/tmp/ci-data/tushare/stock_factor/$d.csv"
           done
           cat > /tmp/ci-config.toml <<'EOF'
           [start]
@@ -69,7 +76,9 @@ jobs:
           directory = "/tmp/hqbacktest-ci-out"
           EOF
           python -m hqbacktest run --config /tmp/ci-config.toml --output /tmp/hqbacktest-ci-out
-          test -f /tmp/hqbacktest-ci-out/summary.json
+          for result in config.toml run_metadata.json events.jsonl equity_curve.csv orders.csv fills.csv positions.csv costs.csv summary.json; do
+            test -f "/tmp/hqbacktest-ci-out/$result"
+          done
 
       - name: Build sdist + wheel
         run: python -m pip install build && python -m build

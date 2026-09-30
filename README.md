@@ -68,6 +68,14 @@ pip install -e ".[dev]"
 
 `pyproject.toml` 声明的 Python 下限为 `>=3.10`（与 `hqdata` 一致）。
 
+切换分支、更新版本号或修改任一项目的依赖声明后，请按上面的顺序重新执行两条可编辑安装命令，再运行以下版本一致性检查：
+
+```bash
+pytest tests/test_package.py::test_version_matches_pyproject -q
+```
+
+这可避免解释器继续使用旧的 editable 元数据，导致 `run_metadata.json` 记录的 `hqbacktest_version` 与当前源码不一致。
+
 ## 配置数据源
 
 `hqbacktest` 不接触任何数据源 token，也不在回测运行时联网。回测侧只声明 `source`（数据源名或绝对路径）与 `data_root`（父目录），`hqbacktest` 内部把它们解析成 hqdata 要求的 `(root, source_name)` 并交给 [`hqdata.init_source("csv", root=..., source_name=...)`](https://github.com/HonestQuantTech/hqdata)。
